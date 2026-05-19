@@ -1,0 +1,30 @@
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor lock files (LibreOffice, etc.)
+.~lock.*
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Working files / private submission artifacts (kept local, not committed)
+# Tracked screenshots live in screenshots/ — keep root copies out of git
+# so accidental `git add -A` later doesn't duplicate them.
+STORE_LISTING.md
+icon-options/
+Demo_image_interface.png
+Demo_image_save_file.png
+Demo_image_interface_1280x800.png
+Demo_image_save_file_1280x800.png
+
+# Build output
+*.pyc
+__pycache__/
+node_modules/
+
+# Local notes
+NOTES.md
+TODO.md
