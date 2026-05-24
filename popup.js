@@ -116,7 +116,10 @@ async function doExport(format) {
       mimeType
     });
 
+    // Word count
+    const counts = countWords(messages);
     setStatus(`Exported ${messages.length} messages from ${detected.name}`, 'success');
+    showWordCount(counts);
 
   } catch (err) {
     setStatus('Failed: ' + err.message, 'error');
@@ -151,6 +154,28 @@ function generateJSON(title, messages, userLabel, assistantLabel) {
       text: m.text
     }))
   }, null, 2);
+}
+
+function countWords(messages) {
+  let userWords = 0;
+  let assistantWords = 0;
+  for (const msg of messages) {
+    const wc = msg.text ? msg.text.trim().split(/\s+/).filter(w => w.length > 0).length : 0;
+    if (msg.role === 'user') userWords += wc;
+    else assistantWords += wc;
+  }
+  return { userWords, assistantWords, total: userWords + assistantWords };
+}
+
+function showWordCount(counts) {
+  const el = document.getElementById('wordcount');
+  if (el) {
+    el.style.display = 'block';
+    el.innerHTML =
+      `<span class="wc-label">User:</span> <span class="wc-num">${counts.userWords.toLocaleString()}</span> · ` +
+      `<span class="wc-label">Assistant:</span> <span class="wc-num">${counts.assistantWords.toLocaleString()}</span> · ` +
+      `<span class="wc-label">Total:</span> <span class="wc-num">${counts.total.toLocaleString()}</span>`;
+  }
 }
 
 function sanitize(title) {
