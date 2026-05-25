@@ -128,7 +128,10 @@ async function doExport(format) {
 
 // Generators
 function generateMD(title, messages, userLabel, assistantLabel) {
+  const counts = countWords(messages);
   const lines = [];
+  lines.push(`# ${title}`);
+  lines.push(`\n> Word count — ${userLabel}: ${counts.userWords.toLocaleString()} · ${assistantLabel}: ${counts.assistantWords.toLocaleString()} · Total: ${counts.total.toLocaleString()}`);
   let current = null;
 
   for (const msg of messages) {
@@ -144,10 +147,16 @@ function generateMD(title, messages, userLabel, assistantLabel) {
 }
 
 function generateJSON(title, messages, userLabel, assistantLabel) {
+  const counts = countWords(messages);
   return JSON.stringify({
     title,
     exported: new Date().toISOString(),
     message_count: messages.length,
+    word_count: {
+      user: counts.userWords,
+      assistant: counts.assistantWords,
+      total: counts.total
+    },
     messages: messages.map(m => ({
       speaker: m.role === 'user' ? userLabel : assistantLabel,
       role: m.role,
