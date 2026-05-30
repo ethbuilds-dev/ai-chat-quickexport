@@ -110,21 +110,19 @@ async function doExport(format) {
     // Descriptive filename: Platform_UserLabel_AssistantLabel_Date_ConversationID.format
     const filename = `${detected.name}_${sanitize(labels.userLabel)}_${sanitize(labels.assistantLabel)}_${new Date().toISOString().slice(0, 10)}_${detected.conversationId.slice(0, 8)}.${format}`;
 
-    // Download via a Blob object URL created here in the popup. The popup is a
-    // full extension page with chrome.downloads access; MV3 service workers can't
-    // use URL.createObjectURL. This avoids the base64 (btoa) triple-copy and the
-    // data: URL size limit that caused out-of-memory crashes on large exports.
+    // Download via a Blob object URL and an anchor click. The download attribute
+    // reliably sets the filename, which chrome.downloads.download() ignored for
+    // blob: URLs (Chrome used the blob UUID instead). The Blob keeps memory flat
+    // and avoids the base64 (btoa) data: URL size limit that crashed large exports.
     const blob = new Blob([content], { type: mimeType });
     const url = URL.createObjectURL(blob);
-    const downloadId = await chrome.downloads.download({ url, filename, saveAs: true });
-    // Revoke once the download finishes, so we don't leak the blob.
-    chrome.downloads.onChanged.addListener(function onChanged(delta) {
-      if (delta.id === downloadId && delta.state &&
-          (delta.state.current === 'complete' || delta.state.current === 'interrupted')) {
-        URL.revokeObjectURL(url);
-        chrome.downloads.onChanged.removeListener(onChanged);
-      }
-    });
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
 
     // Word count
     const counts = countWords(messages);

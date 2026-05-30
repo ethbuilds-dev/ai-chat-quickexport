@@ -5,7 +5,6 @@
   "description": "Export full conversations from ChatGPT, Claude, Gemini & Grok in one click. Complete history via API.",
   "permissions": [
     "storage",
-    "downloads",
     "activeTab",
     "scripting"
   ],

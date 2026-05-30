@@ -14,22 +14,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     return true;
   }
-
-  if (message.type === 'DOWNLOAD_FILE') {
-    const { content, filename, mimeType } = message;
-    const base64 = btoa(unescape(encodeURIComponent(content)));
-    const dataUrl = `data:${mimeType || 'text/plain'};base64,${base64}`;
-
-    chrome.downloads.download({
-      url: dataUrl,
-      filename: filename,
-      saveAs: true
-    }, (downloadId) => {
-      sendResponse({ downloadId });
-    });
-
-    return true;
-  }
 });
 
 // ── Token Capture ─────────────────────────────────────────────────────
