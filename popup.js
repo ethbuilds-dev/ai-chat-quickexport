@@ -97,17 +97,18 @@ async function doExport(format) {
 
     setStatus(`${messages.length} messages, preparing ${format}...`, 'info');
 
-    let content, filename, mimeType;
+    let content, mimeType;
 
     if (format === 'json') {
       content = generateJSON(title, messages, labels.userLabel, labels.assistantLabel);
-      filename = sanitize(title) + '.json';
       mimeType = 'application/json';
     } else {
       content = generateMD(title, messages, labels.userLabel, labels.assistantLabel);
-      filename = sanitize(title) + '.md';
       mimeType = 'text/markdown';
     }
+
+    // Descriptive filename: Platform_UserLabel_AssistantLabel_Date_ConversationID.format
+    const filename = `${detected.name}_${sanitize(labels.userLabel)}_${sanitize(labels.assistantLabel)}_${new Date().toISOString().slice(0, 10)}_${detected.conversationId.slice(0, 8)}.${format}`;
 
     // Download via a Blob object URL created here in the popup. The popup is a
     // full extension page with chrome.downloads access; MV3 service workers can't
