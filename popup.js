@@ -63,7 +63,7 @@ async function doExport(format) {
     const detected = detectPlatform(tab?.url);
 
     if (!detected) {
-      setStatus('Open a supported AI conversation (ChatGPT, Claude)', 'error');
+      setStatus('Open a supported AI conversation (ChatGPT, Claude, Gemini, Grok)', 'error');
       return;
     }
 
