@@ -6,6 +6,7 @@ chrome.storage.sync.get(
   (settings) => {
     document.getElementById('userLabel').value = settings.userLabel;
     document.getElementById('assistantLabel').value = settings.assistantLabel;
+    updateFilenamePreview();
   }
 );
 
@@ -51,6 +52,32 @@ function detectPlatform(url) {
   }
 
   return null;
+}
+
+// Build the base filename (no extension): Platform_UserLabel_AssistantLabel_Date_ConversationID
+function buildBaseFilename(detected, userLabel, assistantLabel) {
+  return `${detected.name}_${sanitize(userLabel)}_${sanitize(assistantLabel)}_${new Date().toISOString().slice(0, 10)}_${detected.conversationId.slice(0, 8)}`;
+}
+
+// Refresh the filename preview from the active tab + current label inputs. Runs
+// on popup open and whenever a label changes. Leaves the field empty when the
+// active tab isn't a supported conversation.
+async function updateFilenamePreview() {
+  const field = document.getElementById('exportFilename');
+  if (!field) return;
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const detected = detectPlatform(tab?.url);
+    if (!detected || !detected.conversationId) {
+      field.value = '';
+      return;
+    }
+    const userLabel = document.getElementById('userLabel').value.trim() || 'USER';
+    const assistantLabel = document.getElementById('assistantLabel').value.trim() || 'ASSISTANT';
+    field.value = buildBaseFilename(detected, userLabel, assistantLabel);
+  } catch (err) {
+    field.value = '';
+  }
 }
 
 async function doExport(format) {
@@ -107,38 +134,24 @@ async function doExport(format) {
       mimeType = 'text/markdown';
     }
 
-    // Descriptive filename: Platform_UserLabel_AssistantLabel_Date_ConversationID.format
-    const filename = `${detected.name}_${sanitize(labels.userLabel)}_${sanitize(labels.assistantLabel)}_${new Date().toISOString().slice(0, 10)}_${detected.conversationId.slice(0, 8)}.${format}`;
+    // Use whatever is in the filename field (the user may have edited it),
+    // falling back to the auto-generated base, then append the format extension.
+    const base = document.getElementById('exportFilename').value.trim() ||
+      buildBaseFilename(detected, labels.userLabel, labels.assistantLabel);
+    const filename = sanitize(base) + '.' + format;
 
-    // Download strategy:
-    //  • chrome.downloads.download() gives a real Save As dialog (choose name +
-    //    location) AND honours `filename` — but only for data: URLs. For blob:
-    //    URLs Chrome ignores `filename` and uses the blob UUID, so we can't use
-    //    a blob: URL here.
-    //  • A data: URL holds the whole file in the URL string, which is fine for
-    //    normal conversations but blew up memory on huge exports (the 200k-word
-    //    crash v1.4.0 fixed). So above a size threshold we fall back to an anchor
-    //    download: the `download` attribute sets the filename reliably and the
-    //    blob streams without copying — the cost is no Save As dialog.
+    // Anchor download: the `download` attribute sets the filename reliably and
+    // the blob streams without copying. Saves to the browser's default Downloads
+    // folder (no Save As dialog).
     const blob = new Blob([content], { type: mimeType });
-    const DATA_URL_LIMIT = 2 * 1024 * 1024; // ~2 MB of content
-
-    if (blob.size <= DATA_URL_LIMIT) {
-      // Small/typical export: Save As dialog with the correct filename.
-      const dataUrl = await blobToDataURL(blob);
-      await chrome.downloads.download({ url: dataUrl, filename, saveAs: true });
-    } else {
-      // Large export: anchor download keeps memory flat. Saves to the default
-      // Downloads folder with the correct filename (no Save As prompt).
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 10000);
-    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
 
     // Word count
     const counts = countWords(messages);
@@ -215,18 +228,10 @@ function sanitize(title) {
   return title.replace(/[<>:"/\\|?*]/g, '').replace(/\s+/g, '-').substring(0, 100);
 }
 
-// Read a Blob as a data: URL via FileReader — native and single-copy, unlike the
-// old btoa(unescape(encodeURIComponent(...))) chain that allocated the string
-// several times over.
-function blobToDataURL(blob) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(reader.error || new Error('Failed to read export data'));
-    reader.readAsDataURL(blob);
-  });
-}
-
 // Event listeners
 document.getElementById('exportMd').addEventListener('click', () => doExport('md'));
 document.getElementById('exportJson').addEventListener('click', () => doExport('json'));
+
+// Keep the filename preview in sync with the labels as they're typed.
+document.getElementById('userLabel').addEventListener('input', updateFilenamePreview);
+document.getElementById('assistantLabel').addEventListener('input', updateFilenamePreview);
