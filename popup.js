@@ -110,19 +110,35 @@ async function doExport(format) {
     // Descriptive filename: Platform_UserLabel_AssistantLabel_Date_ConversationID.format
     const filename = `${detected.name}_${sanitize(labels.userLabel)}_${sanitize(labels.assistantLabel)}_${new Date().toISOString().slice(0, 10)}_${detected.conversationId.slice(0, 8)}.${format}`;
 
-    // Download via a Blob object URL and an anchor click. The download attribute
-    // reliably sets the filename, which chrome.downloads.download() ignored for
-    // blob: URLs (Chrome used the blob UUID instead). The Blob keeps memory flat
-    // and avoids the base64 (btoa) data: URL size limit that crashed large exports.
+    // Download strategy:
+    //  • chrome.downloads.download() gives a real Save As dialog (choose name +
+    //    location) AND honours `filename` — but only for data: URLs. For blob:
+    //    URLs Chrome ignores `filename` and uses the blob UUID, so we can't use
+    //    a blob: URL here.
+    //  • A data: URL holds the whole file in the URL string, which is fine for
+    //    normal conversations but blew up memory on huge exports (the 200k-word
+    //    crash v1.4.0 fixed). So above a size threshold we fall back to an anchor
+    //    download: the `download` attribute sets the filename reliably and the
+    //    blob streams without copying — the cost is no Save As dialog.
     const blob = new Blob([content], { type: mimeType });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    const DATA_URL_LIMIT = 2 * 1024 * 1024; // ~2 MB of content
+
+    if (blob.size <= DATA_URL_LIMIT) {
+      // Small/typical export: Save As dialog with the correct filename.
+      const dataUrl = await blobToDataURL(blob);
+      await chrome.downloads.download({ url: dataUrl, filename, saveAs: true });
+    } else {
+      // Large export: anchor download keeps memory flat. Saves to the default
+      // Downloads folder with the correct filename (no Save As prompt).
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+    }
 
     // Word count
     const counts = countWords(messages);
@@ -197,6 +213,18 @@ function showWordCount(counts) {
 
 function sanitize(title) {
   return title.replace(/[<>:"/\\|?*]/g, '').replace(/\s+/g, '-').substring(0, 100);
+}
+
+// Read a Blob as a data: URL via FileReader — native and single-copy, unlike the
+// old btoa(unescape(encodeURIComponent(...))) chain that allocated the string
+// several times over.
+function blobToDataURL(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error || new Error('Failed to read export data'));
+    reader.readAsDataURL(blob);
+  });
 }
 
 // Event listeners
