@@ -109,11 +109,20 @@ async function doExport(format) {
       mimeType = 'text/markdown';
     }
 
-    await chrome.runtime.sendMessage({
-      type: 'DOWNLOAD_FILE',
-      content,
-      filename,
-      mimeType
+    // Download via a Blob object URL created here in the popup. The popup is a
+    // full extension page with chrome.downloads access; MV3 service workers can't
+    // use URL.createObjectURL. This avoids the base64 (btoa) triple-copy and the
+    // data: URL size limit that caused out-of-memory crashes on large exports.
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const downloadId = await chrome.downloads.download({ url, filename, saveAs: true });
+    // Revoke once the download finishes, so we don't leak the blob.
+    chrome.downloads.onChanged.addListener(function onChanged(delta) {
+      if (delta.id === downloadId && delta.state &&
+          (delta.state.current === 'complete' || delta.state.current === 'interrupted')) {
+        URL.revokeObjectURL(url);
+        chrome.downloads.onChanged.removeListener(onChanged);
+      }
     });
 
     // Word count
