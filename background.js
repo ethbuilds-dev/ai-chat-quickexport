@@ -258,9 +258,12 @@ function walkChatGPTTree(mapping) {
   }
   if (!rootId) return messages;
 
-  function walk(nodeId) {
+  // Iterative tree walk — avoids stack overflow on 200k+ message conversations
+  const stack = [rootId];
+  while (stack.length > 0) {
+    const nodeId = stack.pop();
     const node = mapping[nodeId];
-    if (!node) return;
+    if (!node) continue;
 
     if (node.message) {
       const role = node.message.author?.role;
@@ -276,12 +279,11 @@ function walkChatGPTTree(mapping) {
     }
 
     if (node.children) {
-      for (const childId of node.children) {
-        walk(childId);
+      // Push children in reverse order so first child is processed first
+      for (let i = node.children.length - 1; i >= 0; i--) {
+        stack.push(node.children[i]);
       }
     }
   }
-
-  walk(rootId);
   return messages;
 }
