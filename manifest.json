@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
   "name": "AI Chat QuickExport",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "description": "Export full conversations from ChatGPT, Claude, Gemini & Grok in one click. Complete history via API.",
   "permissions": [
     "storage",
     "activeTab",
-    "scripting"
+    "scripting",
+    "downloads"
   ],
   "host_permissions": [
     "https://chatgpt.com/*",

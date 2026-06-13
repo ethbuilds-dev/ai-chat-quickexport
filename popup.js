@@ -140,18 +140,28 @@ async function doExport(format) {
       buildBaseFilename(detected, labels.userLabel, labels.assistantLabel);
     const filename = sanitize(base) + '.' + format;
 
-    // Anchor download: the `download` attribute sets the filename reliably and
-    // the blob streams without copying. Saves to the browser's default Downloads
-    // folder (no Save As dialog).
+    // Download via the chrome.downloads API (needs the "downloads" permission).
+    // The old anchor-click from the popup context was fragile — large blobs +
+    // popup teardown produced Chrome "failed due to insufficient permissions"
+    // even with site auto-downloads allowed. chrome.downloads is the robust path.
     const blob = new Blob([content], { type: mimeType });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    if (chrome.downloads && chrome.downloads.download) {
+      chrome.downloads.download({ url, filename, saveAs: false }, () => {
+        if (chrome.runtime.lastError) {
+          setStatus('Download blocked: ' + chrome.runtime.lastError.message, 'error');
+        }
+        setTimeout(() => URL.revokeObjectURL(url), 30000);
+      });
+    } else {
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+    }
 
     // Word count
     const counts = countWords(messages);
