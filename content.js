@@ -48,6 +48,11 @@
   // ── Settings ─────────────────────────────────────────────────────────
   const DEFAULT_USER_LABEL = 'USER';
   const DEFAULT_ASSISTANT_LABEL = 'ASSISTANT';
+  // Capture Claude's reasoning/"thinking" summaries as //system// blocks (2026-06-13).
+  // The browser DOM never showed these to the old exporter; the API does, as
+  // non-string parts. On = include them; the few that slip through unknown shapes
+  // get logged to console so we can tune field names from one real export.
+  const INCLUDE_SYSTEM_TRACES = true;
 
   async function getLabels() {
     return new Promise((resolve) => {
@@ -128,10 +133,65 @@
   function extractTextParts(content) {
     if (!content || !content.parts) return [];
 
-    return content.parts
-      .filter(part => typeof part === 'string')
-      .map(part => part.trim())
-      .filter(part => part.length > 0);
+    const out = [];
+    for (const part of content.parts) {
+      if (typeof part === 'string') {
+        const t = part.trim();
+        if (t) out.push(t);
+        continue;
+      }
+      if (part && typeof part === 'object') {
+        const sys = extractSystemBlock(part);
+        if (sys) {
+          out.push(sys);
+        } else if (INCLUDE_SYSTEM_TRACES) {
+          // Learn from anything we dropped — one real export reveals unknown shapes.
+          try {
+            console.warn('[Exporter] dropped non-string part (type=' +
+              (part.type || '?') + '):', JSON.stringify(part).slice(0, 400));
+          } catch (e) {}
+        }
+      }
+    }
+    return out;
+  }
+
+  // Claude's reasoning/"thinking" summaries arrive as NON-string content parts,
+  // so the old string-only filter dropped them. Zaina pasted them by hand as
+  // //system// ... Done blocks; capture them automatically in the same format.
+  // Type-guarded so tool_use / image / attachment parts are NOT mistaken for traces.
+  // Defensive across plausible field names; if these guesses miss, the console
+  // warning above shows the real schema from one live export.
+  function extractSystemBlock(part) {
+    if (!INCLUDE_SYSTEM_TRACES) return null;
+    const type = (part.type || '').toLowerCase();
+    const looksThinking =
+      type.includes('thinking') || type.includes('reason') || type.includes('summary') ||
+      part.summaries != null || part.summary != null || part.thinking != null;
+    if (!looksThinking) return null;
+
+    const pieces = [];
+    const summaries = part.summaries != null ? part.summaries : part.summary;
+    if (Array.isArray(summaries)) {
+      for (const s of summaries) {
+        if (typeof s === 'string') { if (s.trim()) pieces.push(s.trim()); }
+        else if (s && typeof s === 'object') {
+          const v = s.summary || s.text || s.content ||
+                    [s.header, s.body].filter(Boolean).join('\n');
+          if (v) pieces.push(String(v).trim());
+        }
+      }
+    } else if (typeof summaries === 'string' && summaries.trim()) {
+      pieces.push(summaries.trim());
+    }
+    for (const key of ['thinking', 'reasoning', 'text', 'content']) {
+      const v = part[key];
+      if (typeof v === 'string' && v.trim() && !pieces.includes(v.trim())) {
+        pieces.push(v.trim());
+      }
+    }
+    if (pieces.length === 0) return null;
+    return '//system//\n' + pieces.join('\n') + '\nDone';
   }
 
   // ── Output Generation ────────────────────────────────────────────────
