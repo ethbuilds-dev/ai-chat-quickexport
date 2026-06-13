@@ -1,5 +1,9 @@
 // background.js — Service worker for multi-platform AI conversation export
 
+// Capture Claude's reasoning/"thinking" blocks as //system//...Done blocks
+// (the live data path is fetchClaude here, NOT content.js). 2026-06-13.
+const INCLUDE_SYSTEM_TRACES = true;
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'CAPTURE_AND_FETCH') {
     let { conversationId, tabId, platform } = message;
@@ -134,10 +138,23 @@ async function fetchClaude(conversationId, token) {
       if (typeof msg.content === 'string') {
         text = msg.content;
       } else if (Array.isArray(msg.content)) {
-        text = msg.content
-          .filter(b => b.type === 'text')
-          .map(b => b.text)
-          .join('\n\n');
+        // Walk blocks in order. Text blocks → text. Thinking blocks → //system//
+        // blocks (Zaina's format) — confirmed Claude API shape 2026-06-13:
+        // { type:'thinking', thinking:'<reasoning>', summaries:[{summary:'...'}] }.
+        const segs = [];
+        for (const b of msg.content) {
+          if (b.type === 'text' && b.text) {
+            segs.push(b.text);
+          } else if (b.type === 'thinking' && INCLUDE_SYSTEM_TRACES) {
+            const sums = Array.isArray(b.summaries)
+              ? b.summaries.map(s => (typeof s === 'string' ? s : (s && s.summary) || '')).filter(Boolean).join('\n')
+              : '';
+            const body = (b.thinking || '').trim();
+            const inner = [sums, body].filter(Boolean).join('\n');
+            if (inner) segs.push('//system//\n' + inner + '\nDone');
+          }
+        }
+        text = segs.join('\n\n');
       } else if (msg.text) {
         text = msg.text;
       }
