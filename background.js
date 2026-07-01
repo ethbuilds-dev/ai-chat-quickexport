@@ -10,7 +10,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     captureTokenFromPage(tabId, platform)
       .then(token => {
-        if (!token) throw new Error('Could not capture auth token. Refresh the page and try again.');
+        // ChatGPT re-acquires its own token inside the page context (see
+        // fetchChatGPT), so a null here isn't fatal for it. The cookie-auth
+        // platforms (Claude/Gemini/Grok) return the '__COOKIE_AUTH__' marker.
+        if (!token && platform !== 'chatgpt') {
+          throw new Error('Could not capture auth token. Refresh the page and try again.');
+        }
         return fetchConversation(conversationId, token, platform, tabId);
       })
       .then(data => sendResponse({ data }))
@@ -79,7 +84,7 @@ async function captureTokenFromPage(tabId, platform) {
 
 async function fetchConversation(conversationId, token, platform, tabId) {
   if (platform === 'chatgpt') {
-    return fetchChatGPT(conversationId, token);
+    return fetchChatGPT(conversationId, token, tabId);
   }
   if (platform === 'claude') {
     return fetchClaude(conversationId, token);
@@ -93,19 +98,65 @@ async function fetchConversation(conversationId, token, platform, tabId) {
   throw new Error('Unknown platform: ' + platform);
 }
 
-async function fetchChatGPT(conversationId, token) {
-  const response = await fetch(`https://chatgpt.com/backend-api/conversation/${conversationId}`, {
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'Content-Type': 'application/json'
-    }
+async function fetchChatGPT(conversationId, token, tabId) {
+  // IMPORTANT (2026-06-29 fix): the backend-api fetch MUST run inside the page's
+  // MAIN world, NOT here in the service worker.
+  //
+  // OpenAI tightened Cloudflare bot-management on chatgpt.com/backend-api/*. A
+  // fetch issued from the extension service worker is seen by Cloudflare as a
+  // cross-context request (extension origin, Sec-Fetch-Site != same-origin, a
+  // service-worker TLS/context fingerprint) and gets 403'd — even with a valid
+  // Bearer token and cookies. Claude/Grok don't run this protection, so their
+  // service-worker fetches still work; ChatGPT is the only one that broke.
+  //
+  // Running the exact same fetch from the page context makes it indistinguishable
+  // from ChatGPT's own frontend request: real browser TLS fingerprint, real
+  // cf_clearance cookie, Sec-Fetch-Site: same-origin, correct Origin/Referer.
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    world: 'MAIN',
+    func: (convId, bearer) => {
+      return (async () => {
+        try {
+          // Re-acquire a fresh token in-page if we weren't handed one.
+          let tok = bearer;
+          if (!tok) {
+            try {
+              const s = await fetch('/api/auth/session', { credentials: 'include' });
+              const sd = await s.json();
+              tok = sd.accessToken || null;
+            } catch (e) { /* fall through; cookies may still suffice */ }
+          }
+          const headers = { 'Content-Type': 'application/json' };
+          if (tok) headers['Authorization'] = 'Bearer ' + tok;
+          const r = await fetch(
+            'https://chatgpt.com/backend-api/conversation/' + convId,
+            { credentials: 'include', headers }
+          );
+          if (!r.ok) {
+            return { error: 'ChatGPT API: ' + r.status +
+              (r.status === 403
+                ? ' (Cloudflare blocked the request — reload the ChatGPT tab and make sure you are logged in, then try again)'
+                : '') };
+          }
+          const d = await r.json();
+          return { title: d.title || 'Untitled', mapping: d.mapping || null };
+        } catch (e) {
+          return { error: 'ChatGPT fetch failed: ' + (e && e.message ? e.message : String(e)) };
+        }
+      })();
+    },
+    args: [conversationId, token && token !== '__COOKIE_AUTH__' ? token : null]
   });
-  if (!response.ok) throw new Error(`ChatGPT API: ${response.status}`);
-  const data = await response.json();
 
-  // Walk tree and return normalized format
-  const messages = walkChatGPTTree(data.mapping);
-  return { title: data.title || 'Untitled', messages, platform: 'chatgpt' };
+  const payload = results && results[0] && results[0].result;
+  if (!payload) throw new Error('Could not reach the ChatGPT page context. Reload the tab and try again.');
+  if (payload.error) throw new Error(payload.error);
+  if (!payload.mapping) throw new Error('ChatGPT returned no conversation data.');
+
+  // Walk tree (in the service worker — this is plain data work, no network).
+  const messages = walkChatGPTTree(payload.mapping);
+  return { title: payload.title || 'Untitled', messages, platform: 'chatgpt' };
 }
 
 async function fetchClaude(conversationId, token) {
