@@ -28,3 +28,6 @@ node_modules/
 # Local notes
 NOTES.md
 TODO.md
+
+# v1.5 test artifacts
+tests/out-sample.zip

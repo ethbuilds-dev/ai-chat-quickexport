@@ -1,0 +1,64 @@
+{
+  "comment": "Synthetic Claude chat_conversations messages. files/files_v2/attachments mirror the INFERRED shapes documented in docs/v1.5-architecture-notes.md section 2 (fixtures for the defensive detector, NOT verified live API output); the inline base64 image block is the OBSERVED Anthropic content-block shape.",
+  "org_id": "org-1234",
+  "messages": [
+    {
+      "sender": "human",
+      "content": [{ "type": "text", "text": "Here is a screenshot of the bug." }],
+      "files": [
+        {
+          "file_kind": "image",
+          "file_uuid": "aaaa-bbbb-cccc",
+          "file_name": "bug screenshot.png",
+          "preview_url": "/api/organizations/org-1234/files/aaaa-bbbb-cccc/preview"
+        }
+      ],
+      "attachments": []
+    },
+    {
+      "sender": "assistant",
+      "content": [{ "type": "text", "text": "I see the null pointer in the trace." }]
+    },
+    {
+      "sender": "human",
+      "content": [{ "type": "text", "text": "And here is the log file." }],
+      "attachments": [
+        {
+          "file_name": "server.log",
+          "file_type": "text/plain",
+          "file_size": 123,
+          "extracted_content": "ERROR: NullPointerException at line 42"
+        }
+      ]
+    },
+    {
+      "sender": "human",
+      "content": [{ "type": "text", "text": "files_v2 shape with only a uuid" }],
+      "files_v2": [
+        { "file_kind": "image", "file_uuid": "dddd-eeee-ffff" }
+      ]
+    },
+    {
+      "sender": "human",
+      "content": [{ "type": "text", "text": "unknown media shape — must be skipped, not thrown" }],
+      "files": [
+        { "mystery_field": true, "no_url_here": "nope" }
+      ]
+    },
+    {
+      "sender": "human",
+      "comment": "OBSERVED shape (real Anthropic-format transcript): inline base64 image content block",
+      "content": [
+        { "type": "text", "text": "Inline image block below." },
+        {
+          "type": "image",
+          "source": {
+            "type": "base64",
+            "media_type": "image/png",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGBgAAAABQABh6FO1AAAAABJRU5ErkJggg=="
+          }
+        }
+      ]
+    }
+  ]
+}
