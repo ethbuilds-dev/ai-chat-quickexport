@@ -216,6 +216,34 @@ function readZip(buf) {
   console.log('  info external verification sample written: ' + outPath);
 }
 
+// ---- v1.5.1 fixes: position-aware naming + descriptive alt ---------------
+{
+  const png = new Uint8Array([0x89,0x50,0x4e,0x47]);
+  const assets = [
+    { id: 'a', ok: true, bytes: png },
+    { id: 'b', ok: true, bytes: png },
+    { id: 'c', ok: true, bytes: png },
+  ];
+  const asg = MediaUtils.assignAssetNames(assets, { idToMsg: { a: 12, b: 12, c: 3 } });
+  check('msg12 first image name', asg.idToPath.a === 'assets/msg012-img1.png', asg.idToPath.a);
+  check('msg12 second image name', asg.idToPath.b === 'assets/msg012-img2.png', asg.idToPath.b);
+  check('msg3 first image zero-padded', asg.idToPath.c === 'assets/msg003-img1.png', asg.idToPath.c);
+
+  const asg2 = MediaUtils.assignAssetNames([{ id: 'x', ok: true, bytes: png }], {});
+  check('no-position fallback zero-padded', asg2.idToPath.x === 'assets/image-001.png', asg2.idToPath.x);
+
+  const rw = MediaUtils.rewriteAssetLinks('x ![attachment](asset:a) y', asg.idToPath);
+  check('generic alt becomes filename', rw === 'x ![msg012-img1.png](assets/msg012-img1.png) y', rw);
+
+  const rw2 = MediaUtils.rewriteAssetLinks('x ![my diagram](asset:a) y', asg.idToPath);
+  check('meaningful alt preserved', rw2 === 'x ![my diagram](assets/msg012-img1.png) y', rw2);
+
+  const jpg = new Uint8Array([0xff,0xd8,0xff]);
+  const asg3 = MediaUtils.assignAssetNames([{ id: 'n', ok: true, name: 'photo.jpg', bytes: jpg }], { idToMsg: { n: 5 } });
+  check('real upload name beats position', asg3.idToPath.n === 'assets/photo.jpg', asg3.idToPath.n);
+}
+
 // ---- summary -----------------------------------------------------------
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed === 0 ? 0 : 1);
+

@@ -199,6 +199,19 @@ function base64ToBytes(b64) {
 
 // Same chrome.downloads call as the v1.4.3 path (kept separate on purpose —
 // the plain-export code below stays byte-identical to v1.4.3).
+// Anchor-based download: respects the `download` filename synchronously,
+// avoiding the chrome.downloads blob-URL-UUID fallback seen on larger zips.
+function downloadBlobViaAnchor(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
+}
+
 function downloadBlobFile(blob, filename) {
   const url = URL.createObjectURL(blob);
   if (chrome.downloads && chrome.downloads.download) {
@@ -249,7 +262,22 @@ async function doMediaExport(detected, tab, media, messages, labels, format, tit
     }
   });
 
-  const assigned = MediaUtils.assignAssetNames(withBytes);
+  // Map each asset id to its 1-based message position, so asset filenames can
+  // encode WHERE in the log the image lives (msg012-img1.png) — the fix for
+  // matching hundreds of images back to the conversation. Scan message texts
+  // in order for ](asset:ID) placeholders.
+  const idToMsg = {};
+  messages.forEach((m, i) => {
+    const t = (m && typeof m.text === 'string') ? m.text : '';
+    if (t.indexOf('](asset:') === -1) return;
+    const re = /\]\(asset:([A-Za-z0-9_-]+)\)/g;
+    let match;
+    while ((match = re.exec(t)) !== null) {
+      if (idToMsg[match[1]] == null) idToMsg[match[1]] = i + 1;
+    }
+  });
+
+  const assigned = MediaUtils.assignAssetNames(withBytes, { idToMsg: idToMsg });
 
   // Rewrite placeholders in the message texts BEFORE generating, so both
   // .md and .json formats carry the final relative links (or failure notes).
@@ -300,7 +328,11 @@ async function doMediaExport(detected, tab, media, messages, labels, format, tit
     return;
   }
 
-  downloadBlobFile(new Blob([zipBytes], { type: 'application/zip' }), base + '.zip');
+  // Bug: the larger zip blob intermittently downloaded as the blob-URL UUID
+  // instead of `base` (chrome.downloads race on a blob that outlives the
+  // popup). The anchor-download path respects the `download` attribute name
+  // synchronously — use it for the zip; the plain-text path is untouched.
+  downloadBlobViaAnchor(new Blob([zipBytes], { type: 'application/zip' }), base + '.zip');
 
   const counts = countWords(rewritten);
   const failNote = failedCount > 0 ? `, ${failedCount} failed` : '';

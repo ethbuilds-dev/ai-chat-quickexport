@@ -50,7 +50,17 @@
     if (typeof text !== 'string' || text.indexOf('](asset:') === -1) return text;
     return text.replace(PLACEHOLDER_RE, function (whole, bang, alt, id) {
       const path = idToPath && idToPath[id];
-      if (path) return bang + '[' + alt + '](' + path + ')';
+      if (path) {
+        // The alt text is the ONLY thing visible when an image fails to
+        // render (viewer sandbox, un-extracted zip, relative-path resolution)
+        // — and the only way to match hundreds of exported images back to
+        // their spot in the log. A generic "attachment" is useless for that.
+        // So: keep a meaningful original alt, else surface the FILENAME (which
+        // now encodes the message position, e.g. msg012-img1.png).
+        const generic = !alt || alt === 'attachment';
+        const shown = generic ? path.replace(/^assets\//, '') : alt;
+        return bang + '[' + shown + '](' + path + ')';
+      }
       return '*[' + (alt || 'attachment') + ' -- not exported (download failed or unsupported)]*';
     });
   }
@@ -265,16 +275,35 @@
   // mediaType?, ok:boolean, ... }. Failed items pass through and get no path
   // (so rewriteAssetLinks turns their placeholders into failure notes).
 
-  function assignAssetNames(assets) {
+  /**
+   * @param {Array} assets
+   * @param {Object} [opts]
+   * @param {Object<string,number>} [opts.idToMsg]  asset id -> 1-based message
+   *   number (its position in the conversation). When present, generated names
+   *   ENCODE THE POSITION (msg012-img1.png) so hundreds of exported images stay
+   *   matchable to their spot in the log — and sort in conversation order.
+   */
+  function assignAssetNames(assets, opts) {
+    const idToMsg = (opts && opts.idToMsg) || {};
     const used = new Set();
     const idToPath = {};
     const named = [];
     let counter = 1;
+    const perMsg = {};  // message number -> running image count within it
     for (const a of assets) {
       if (!a || !a.ok) { named.push(a); continue; }
-      let name = a.name ? sanitizeAssetName(a.name) : null;
       const sniffed = (a.bytes ? sniffImageExt(a.bytes) : null) || extFromMediaType(a.mediaType);
-      if (!name) name = 'image-' + counter + '.' + (sniffed || 'png');
+      const ext = sniffed || 'png';
+      let name = a.name ? sanitizeAssetName(a.name) : null;
+      if (!name) {
+        const msgNo = idToMsg[a.id];
+        if (msgNo != null) {
+          const n = (perMsg[msgNo] = (perMsg[msgNo] || 0) + 1);
+          name = 'msg' + zeroPad(msgNo, 3) + '-img' + n + '.' + ext;
+        } else {
+          name = 'image-' + zeroPad(counter, 3) + '.' + ext;
+        }
+      }
       counter++;
       name = ensureExtension(name, sniffed);
       name = uniqueName(name, used);
@@ -283,6 +312,11 @@
       named.push(Object.assign({}, a, { finalName: name, path: path }));
     }
     return { idToPath: idToPath, named: named };
+  }
+
+  function zeroPad(n, width) {
+    const s = String(n);
+    return s.length >= width ? s : '0'.repeat(width - s.length) + s;
   }
 
   return {
