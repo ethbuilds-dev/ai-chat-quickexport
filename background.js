@@ -1,5 +1,8 @@
 // background.js — Service worker for multi-platform AI conversation export
 
+// v1.5 media export: pure helpers (ref detection, placeholders, naming).
+importScripts('media-utils.js');
+
 // Capture Claude's reasoning/"thinking" blocks as //system//...Done blocks
 // (the live data path is fetchClaude here, NOT content.js). 2026-06-13.
 const INCLUDE_SYSTEM_TRACES = true;
@@ -21,6 +24,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .then(data => sendResponse({ data }))
       .catch(err => sendResponse({ error: err.message }));
 
+    return true;
+  }
+
+  // v1.5: download the media assets referenced by a previous CAPTURE_AND_FETCH.
+  // Sent by the popup only when that response carried a non-empty `media`
+  // array, so conversations without media never reach this path.
+  if (message.type === 'FETCH_MEDIA') {
+    fetchMediaAssets(message.media || [], message.platform, message.tabId)
+      .then(assets => sendResponse({ assets }))
+      .catch(err => sendResponse({ error: err.message }));
     return true;
   }
 });
@@ -155,8 +168,13 @@ async function fetchChatGPT(conversationId, token, tabId) {
   if (!payload.mapping) throw new Error('ChatGPT returned no conversation data.');
 
   // Walk tree (in the service worker — this is plain data work, no network).
-  const messages = walkChatGPTTree(payload.mapping);
-  return { title: payload.title || 'Untitled', messages, platform: 'chatgpt' };
+  // v1.5: image asset pointers are collected into `media` and replaced by
+  // in-text placeholders; string-only conversations are unaffected.
+  const media = [];
+  const messages = walkChatGPTTree(payload.mapping, media);
+  const result = { title: payload.title || 'Untitled', messages, platform: 'chatgpt' };
+  if (media.length > 0) result.media = media;
+  return result;
 }
 
 async function fetchClaude(conversationId, token) {
@@ -180,8 +198,18 @@ async function fetchClaude(conversationId, token) {
     if (!convResp.ok) throw new Error(`Claude conversation: ${convResp.status}`);
     const conv = await convResp.json();
 
-    // Normalize messages
+    // Normalize messages. v1.5: media refs (images/attachments) are collected
+    // alongside, and a markdown placeholder ![alt](asset:<id>) is inserted
+    // where each one appears. Conversations without media produce EXACTLY the
+    // v1.4.3 output (no placeholders, no `media` key).
     const messages = [];
+    const media = [];
+    const onSkip = (why, entry) => {
+      try {
+        console.warn('[Exporter] media: skipped (' + why + '):',
+          JSON.stringify(entry).slice(0, 300));
+      } catch (e) {}
+    };
     for (const msg of (conv.chat_messages || [])) {
       const role = msg.sender === 'human' ? 'user' : 'assistant';
       // Claude content can be array of blocks or a string
@@ -192,6 +220,7 @@ async function fetchClaude(conversationId, token) {
         // Walk blocks in order. Text blocks → text. Thinking blocks → //system//
         // blocks (Zaina's format) — confirmed Claude API shape 2026-06-13:
         // { type:'thinking', thinking:'<reasoning>', summaries:[{summary:'...'}] }.
+        // v1.5: image blocks → asset placeholder (in order).
         const segs = [];
         for (const b of msg.content) {
           if (b.type === 'text' && b.text) {
@@ -203,11 +232,30 @@ async function fetchClaude(conversationId, token) {
             const body = (b.thinking || '').trim();
             const inner = [sums, body].filter(Boolean).join('\n');
             if (inner) segs.push('//system//\n' + inner + '\nDone');
+          } else {
+            const blockRef = MediaUtils.claudeContentBlockMedia(b);
+            if (blockRef) {
+              const id = 'm' + media.length;
+              media.push(Object.assign({ id }, blockRef));
+              segs.push(MediaUtils.makePlaceholder(id, blockRef.alt, blockRef.isImage));
+            }
           }
         }
         text = segs.join('\n\n');
       } else if (msg.text) {
         text = msg.text;
+      }
+      // v1.5: message-level files/attachments (uploads) — placeholders are
+      // appended after the message text, since the JSON gives no in-text anchor.
+      const msgRefs = MediaUtils.collectClaudeMessageMedia(msg, orgId, onSkip);
+      if (msgRefs.length > 0) {
+        const phs = [];
+        for (const ref of msgRefs) {
+          const id = 'm' + media.length;
+          media.push(Object.assign({ id }, ref));
+          phs.push(MediaUtils.makePlaceholder(id, ref.alt, ref.isImage));
+        }
+        text = [text, phs.join('\n')].filter(Boolean).join('\n\n');
       }
       // Filter out unsupported block placeholders
       text = text.replace(/This block is not supported on your current device yet\.\n?/g, '').trim();
@@ -216,7 +264,9 @@ async function fetchClaude(conversationId, token) {
       }
     }
 
-    return { title: conv.name || conv.title || 'Untitled', messages, platform: 'claude' };
+    const result = { title: conv.name || conv.title || 'Untitled', messages, platform: 'claude' };
+    if (media.length > 0) result.media = media;
+    return result;
   } catch(err) {
     throw new Error('Claude: ' + err.message);
   }
@@ -312,7 +362,11 @@ async function fetchGrok(conversationId, token) {
 
 // ── Tree Walkers ──────────────────────────────────────────────────────
 
-function walkChatGPTTree(mapping) {
+// v1.5: `mediaOut` (optional array) collects image/file refs found in
+// non-string content parts; each becomes an in-text ![alt](asset:<id>)
+// placeholder. With no media present, output is identical to v1.4.3
+// (string parts trimmed and joined, objects dropped).
+function walkChatGPTTree(mapping, mediaOut) {
   const messages = [];
   if (!mapping) return messages;
 
@@ -336,10 +390,32 @@ function walkChatGPTTree(mapping) {
     if (node.message) {
       const role = node.message.author?.role;
       if (role === 'user' || role === 'assistant') {
-        const parts = (node.message.content?.parts || [])
-          .filter(p => typeof p === 'string')
-          .map(p => p.trim())
-          .filter(p => p.length > 0);
+        // Human filenames for asset pointers, when the platform provides them.
+        const attNames = mediaOut
+          ? MediaUtils.chatgptAttachmentNames(node.message.metadata)
+          : {};
+        const parts = [];
+        for (const p of (node.message.content?.parts || [])) {
+          if (typeof p === 'string') {
+            const t = p.trim();
+            if (t.length > 0) parts.push(t);
+            continue;
+          }
+          if (!mediaOut || p == null || typeof p !== 'object') continue;
+          const ref = MediaUtils.chatgptPartMedia(p);
+          if (ref) {
+            const id = 'm' + mediaOut.length;
+            const name = attNames[ref.fileId] || null;
+            mediaOut.push(Object.assign({ id }, ref, { name, alt: name || ref.alt }));
+            parts.push(MediaUtils.makePlaceholder(id, name || ref.alt, ref.isImage));
+          } else {
+            // Unknown non-string part — log so one real export reveals the shape.
+            try {
+              console.warn('[Exporter] media: skipped unknown ChatGPT part (content_type=' +
+                (p.content_type || '?') + '):', JSON.stringify(p).slice(0, 300));
+            } catch (e) {}
+          }
+        }
         if (parts.length > 0) {
           messages.push({ role, text: parts.join('\n\n') });
         }
@@ -354,4 +430,175 @@ function walkChatGPTTree(mapping) {
     }
   }
   return messages;
+}
+
+// ── v1.5 Media Asset Download ─────────────────────────────────────────
+// Each asset resolves to { id, name, base64, mediaType?, ok:true } or
+// { id, name, ok:false, error }. A single failed asset never fails the
+// batch — its placeholder becomes a failure note in the export.
+
+function bufToBase64(buf) {
+  const bytes = new Uint8Array(buf);
+  let bin = '';
+  const CHUNK = 0x8000; // avoid call-stack limits on large images
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(bin);
+}
+
+function utf8ToBase64(str) {
+  const bytes = new TextEncoder().encode(str);
+  return bufToBase64(bytes.buffer);
+}
+
+async function fetchMediaAssets(media, platform, tabId) {
+  const assets = [];
+  // Sequential on purpose: exports are seconds-scale, and this avoids
+  // hammering the platforms' file endpoints from an extension context.
+  for (const ref of media) {
+    try {
+      if (ref.kind === 'inline-base64') {
+        // Image bytes were already inline in the conversation JSON.
+        assets.push({ id: ref.id, name: ref.name || null, base64: ref.base64, mediaType: ref.mediaType || null, ok: true });
+      } else if (ref.kind === 'inline-text') {
+        // Text extracted by the platform (e.g. Claude attachment content).
+        assets.push({ id: ref.id, name: ref.name || null, base64: utf8ToBase64(ref.text || ''), mediaType: 'text/plain', ok: true });
+      } else if (ref.kind === 'claude-url') {
+        assets.push(await fetchClaudeAsset(ref));
+      } else if (ref.kind === 'chatgpt-file') {
+        assets.push(await fetchChatGPTAsset(ref, tabId));
+      } else {
+        assets.push({ id: ref.id, name: ref.name || null, ok: false, error: 'unknown media kind: ' + ref.kind });
+      }
+    } catch (err) {
+      console.warn('[Exporter] media: asset ' + ref.id + ' failed:', err);
+      assets.push({ id: ref.id, name: ref.name || null, ok: false, error: err.message });
+    }
+  }
+  return assets;
+}
+
+// Claude assets: cookie-authenticated fetch from the service worker — the
+// same context that already fetches the conversation JSON (proven to carry
+// auth; claude.ai runs no bot protection on its API).
+async function fetchClaudeAsset(ref) {
+  const url = ref.url.startsWith('/') ? 'https://claude.ai' + ref.url : ref.url;
+  const resp = await fetch(url, { credentials: 'include' });
+  if (!resp.ok) {
+    return { id: ref.id, name: ref.name || null, ok: false, error: 'HTTP ' + resp.status };
+  }
+  const ct = resp.headers.get('content-type') || '';
+  if (ct.indexOf('text/html') !== -1) {
+    // A login/interstitial page, not the asset.
+    return { id: ref.id, name: ref.name || null, ok: false, error: 'got HTML instead of file (auth?)' };
+  }
+  const buf = await resp.arrayBuffer();
+  if (buf.byteLength === 0) {
+    return { id: ref.id, name: ref.name || null, ok: false, error: 'empty response' };
+  }
+  return { id: ref.id, name: ref.name || null, base64: bufToBase64(buf), mediaType: ct.split(';')[0] || null, ok: true };
+}
+
+// ChatGPT assets: two steps, following the v1.4.3 MAIN-world pattern.
+// 1) In the page's MAIN world (Cloudflare bot management 403s the service
+//    worker on chatgpt.com/backend-api/*): resolve the file id to a signed
+//    download_url, then try fetching the bytes in-page (base64'd there).
+// 2) If the in-page fetch of the signed URL is CORS-blocked, fall back to
+//    fetching it here in the service worker — the *.oaiusercontent.com host
+//    permission makes that fetch CORS-exempt, and signed URLs need no cookies.
+// The /download endpoint shape is INFERRED (see docs/v1.5-architecture-notes.md);
+// both known URL forms are tried, failures are per-asset and non-fatal.
+async function fetchChatGPTAsset(ref, tabId) {
+  if (tabId == null) {
+    return { id: ref.id, name: ref.name || null, ok: false, error: 'no tab for page-context fetch' };
+  }
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    world: 'MAIN',
+    func: (fileId) => {
+      return (async () => {
+        try {
+          let tok = null;
+          try {
+            const s = await fetch('/api/auth/session', { credentials: 'include' });
+            const sd = await s.json();
+            tok = sd.accessToken || null;
+          } catch (e) { /* cookies may suffice */ }
+          const headers = {};
+          if (tok) headers['Authorization'] = 'Bearer ' + tok;
+
+          // Resolve file id -> signed download_url (two known endpoint forms).
+          const endpoints = [
+            '/backend-api/files/' + fileId + '/download',
+            '/backend-api/files/download/' + fileId
+          ];
+          let downloadUrl = null, lastStatus = null;
+          for (const ep of endpoints) {
+            try {
+              const r = await fetch(ep, { credentials: 'include', headers });
+              lastStatus = r.status;
+              if (!r.ok) continue;
+              const d = await r.json();
+              downloadUrl = d.download_url || d.downloadUrl || (d.file && d.file.download_url) || null;
+              if (downloadUrl) break;
+            } catch (e) { /* try next endpoint */ }
+          }
+          if (!downloadUrl) {
+            return { error: 'could not resolve download_url (last status ' + lastStatus + ')' };
+          }
+
+          // Try to pull the bytes in-page; may be CORS-blocked (cross-origin
+          // signed URL) — in that case hand the URL back for the SW fallback.
+          try {
+            const fr = await fetch(downloadUrl);
+            if (!fr.ok) return { downloadUrl, error: 'asset HTTP ' + fr.status };
+            const buf = await fr.arrayBuffer();
+            const bytes = new Uint8Array(buf);
+            let bin = '';
+            const CHUNK = 0x8000;
+            for (let i = 0; i < bytes.length; i += CHUNK) {
+              bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+            }
+            return {
+              base64: btoa(bin),
+              mediaType: (fr.headers.get('content-type') || '').split(';')[0] || null
+            };
+          } catch (e) {
+            return { downloadUrl }; // CORS or network — let the SW try
+          }
+        } catch (e) {
+          return { error: 'page-context media fetch failed: ' + (e && e.message ? e.message : String(e)) };
+        }
+      })();
+    },
+    args: [ref.fileId]
+  });
+
+  const payload = results && results[0] && results[0].result;
+  if (!payload) {
+    return { id: ref.id, name: ref.name || null, ok: false, error: 'no result from page context' };
+  }
+  if (payload.base64) {
+    return { id: ref.id, name: ref.name || null, base64: payload.base64, mediaType: payload.mediaType || null, ok: true };
+  }
+  if (payload.downloadUrl) {
+    // Service-worker fallback: host permission for *.oaiusercontent.com makes
+    // this CORS-exempt; the signature in the URL carries the authorization.
+    try {
+      const resp = await fetch(payload.downloadUrl);
+      if (!resp.ok) {
+        return { id: ref.id, name: ref.name || null, ok: false, error: 'asset HTTP ' + resp.status };
+      }
+      const buf = await resp.arrayBuffer();
+      if (buf.byteLength === 0) {
+        return { id: ref.id, name: ref.name || null, ok: false, error: 'empty asset response' };
+      }
+      const ct = resp.headers.get('content-type') || '';
+      return { id: ref.id, name: ref.name || null, base64: bufToBase64(buf), mediaType: ct.split(';')[0] || null, ok: true };
+    } catch (err) {
+      return { id: ref.id, name: ref.name || null, ok: false, error: 'sw fallback failed: ' + err.message };
+    }
+  }
+  return { id: ref.id, name: ref.name || null, ok: false, error: payload.error || 'unknown media failure' };
 }
