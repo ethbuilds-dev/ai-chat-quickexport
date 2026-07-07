@@ -15,7 +15,8 @@
     "https://claude.ai/*",
     "https://gemini.google.com/*",
     "https://grok.com/*",
-    "https://x.com/*"
+    "https://x.com/*",
+    "https://*.oaiusercontent.com/*"
   ],
   "background": {
     "service_worker": "background.js"

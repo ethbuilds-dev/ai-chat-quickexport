@@ -122,6 +122,16 @@ async function doExport(format) {
       return;
     }
 
+    // v1.5: conversations that carry media refs take the bundle path (zip
+    // with an assets/ folder). `media` is only ever present when background
+    // found at least one image/attachment, so plain conversations continue
+    // through the unchanged v1.4.3 code below.
+    const media = Array.isArray(data.media) ? data.media : [];
+    if (media.length > 0) {
+      await doMediaExport(detected, tab, media, messages, labels, format, title);
+      return;
+    }
+
     setStatus(`${messages.length} messages, preparing ${format}...`, 'info');
 
     let content, mimeType;
@@ -171,6 +181,134 @@ async function doExport(format) {
   } catch (err) {
     setStatus('Failed: ' + err.message, 'error');
   }
+}
+
+// ── v1.5 media export ────────────────────────────────────────────────
+// Downloads the referenced assets via background, rewrites the asset
+// placeholders inside the message texts to relative assets/ paths, runs the
+// SAME generators as the plain path, and downloads one zip. If every asset
+// fails, falls back to a plain single file whose placeholders become
+// human-readable failure notes — the export never silently disappears.
+
+function base64ToBytes(b64) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+// Same chrome.downloads call as the v1.4.3 path (kept separate on purpose —
+// the plain-export code below stays byte-identical to v1.4.3).
+function downloadBlobFile(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  if (chrome.downloads && chrome.downloads.download) {
+    chrome.downloads.download({ url, filename, saveAs: false }, () => {
+      if (chrome.runtime.lastError) {
+        setStatus('Download blocked: ' + chrome.runtime.lastError.message, 'error');
+      }
+      setTimeout(() => URL.revokeObjectURL(url), 30000);
+    });
+  } else {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  }
+}
+
+async function doMediaExport(detected, tab, media, messages, labels, format, title) {
+  setStatus(`Downloading ${media.length} attachment${media.length === 1 ? '' : 's'}...`, 'info');
+
+  let assets = [];
+  try {
+    const resp = await chrome.runtime.sendMessage({
+      type: 'FETCH_MEDIA',
+      media,
+      platform: detected.platform,
+      tabId: tab.id
+    });
+    if (resp && Array.isArray(resp.assets)) {
+      assets = resp.assets;
+    } else if (resp && resp.error) {
+      console.warn('[Exporter] media fetch error:', resp.error);
+    }
+  } catch (err) {
+    console.warn('[Exporter] media fetch failed:', err);
+  }
+
+  // Decode to bytes (needed for sniffing and for the zip entries).
+  const withBytes = assets.map(a => {
+    if (!a || !a.ok || typeof a.base64 !== 'string') return a;
+    try {
+      return Object.assign({}, a, { bytes: base64ToBytes(a.base64) });
+    } catch (e) {
+      return Object.assign({}, a, { ok: false, error: 'base64 decode failed' });
+    }
+  });
+
+  const assigned = MediaUtils.assignAssetNames(withBytes);
+
+  // Rewrite placeholders in the message texts BEFORE generating, so both
+  // .md and .json formats carry the final relative links (or failure notes).
+  const rewritten = messages.map(m =>
+    Object.assign({}, m, { text: MediaUtils.rewriteAssetLinks(m.text, assigned.idToPath) })
+  );
+
+  setStatus(`${rewritten.length} messages, preparing ${format}...`, 'info');
+
+  let content, mimeType;
+  if (format === 'json') {
+    content = generateJSON(title || 'Untitled', rewritten, labels.userLabel, labels.assistantLabel);
+    mimeType = 'application/json';
+  } else {
+    content = generateMD(title || 'Untitled', rewritten, labels.userLabel, labels.assistantLabel);
+    mimeType = 'text/markdown';
+  }
+
+  const base = sanitize(
+    document.getElementById('exportFilename').value.trim() ||
+    buildBaseFilename(detected, labels.userLabel, labels.assistantLabel)
+  );
+
+  const okAssets = assigned.named.filter(a => a && a.ok && a.path && a.bytes);
+  const failedCount = media.length - okAssets.length;
+
+  if (okAssets.length === 0) {
+    // Nothing downloadable — ship the plain file; placeholders are already
+    // rewritten into visible "not exported" notes.
+    downloadBlobFile(new Blob([content], { type: mimeType }), base + '.' + format);
+    const counts = countWords(rewritten);
+    setStatus(`Exported ${rewritten.length} messages — attachments could not be downloaded`, 'info');
+    showWordCount(counts);
+    return;
+  }
+
+  setStatus('Packing zip...', 'info');
+  let zipBytes;
+  try {
+    const entries = [{ name: base + '.' + format, data: content }];
+    for (const a of okAssets) entries.push({ name: a.path, data: a.bytes });
+    zipBytes = ZipWriter.createZip(entries);
+  } catch (err) {
+    // Zip failure must not lose the conversation text.
+    console.warn('[Exporter] zip failed, exporting plain file:', err);
+    downloadBlobFile(new Blob([content], { type: mimeType }), base + '.' + format);
+    setStatus(`Exported ${rewritten.length} messages (zip failed: ${err.message})`, 'info');
+    return;
+  }
+
+  downloadBlobFile(new Blob([zipBytes], { type: 'application/zip' }), base + '.zip');
+
+  const counts = countWords(rewritten);
+  const failNote = failedCount > 0 ? `, ${failedCount} failed` : '';
+  setStatus(
+    `Exported ${rewritten.length} messages + ${okAssets.length} attachment${okAssets.length === 1 ? '' : 's'}${failNote} from ${detected.name}`,
+    failedCount > 0 ? 'info' : 'success'
+  );
+  showWordCount(counts);
 }
 
 // Generators
