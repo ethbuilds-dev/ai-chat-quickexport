@@ -139,6 +139,11 @@ async function doExport(format) {
     if (format === 'json') {
       content = generateJSON(title, messages, labels.userLabel, labels.assistantLabel);
       mimeType = 'application/json';
+    } else if (format === 'html') {
+      // v1.5: text-only conversations go through the SAME generator as media
+      // ones -- with no maps every message is plain escaped text, no data URIs.
+      content = generateHTML(title, messages, labels.userLabel, labels.assistantLabel);
+      mimeType = 'text/html';
     } else {
       content = generateMD(title, messages, labels.userLabel, labels.assistantLabel);
       mimeType = 'text/markdown';
@@ -279,6 +284,15 @@ async function doMediaExport(detected, tab, media, messages, labels, format, tit
 
   const assigned = MediaUtils.assignAssetNames(withBytes, { idToMsg: idToMsg });
 
+  // v1.5 HTML deliverable: images embed as base64 data URIs at their
+  // placeholder positions -- ONE self-contained .html, no assets folder,
+  // double-click opens in any browser. Handled before the md/json rewrite
+  // below so those code paths stay byte-identical to before.
+  if (format === 'html') {
+    doHtmlMediaExport(detected, media, messages, labels, title, assigned);
+    return;
+  }
+
   // Rewrite placeholders in the message texts BEFORE generating, so both
   // .md and .json formats carry the final relative links (or failure notes).
   const rewritten = messages.map(m =>
@@ -343,6 +357,105 @@ async function doMediaExport(detected, tab, media, messages, labels, format, tit
   showWordCount(counts);
 }
 
+// ── v1.5 HTML export ─────────────────────────────────────────────────
+// Self-contained .html with images embedded as data URIs. If the embedded
+// payload would be too large for one file, falls back to the zip layout
+// (html + assets/ folder with relative links) with a clear status message.
+
+// Size guard: browsers/editors choke on multi-hundred-MB single documents,
+// and base64 inflates bytes by 4/3. Above ~80 MB of *embedded* (base64)
+// size we switch to the zip fallback instead of producing an .html that
+// may not open. 80 MB embedded ≈ 60 MB of raw image bytes.
+const HTML_EMBED_CAP_BYTES = 80 * 1024 * 1024;
+
+function doHtmlMediaExport(detected, media, messages, labels, title, assigned) {
+  // Final position-encoded filenames (msgNNN-imgN.ext) double as alt/title
+  // text so every image stays matchable to its spot in the conversation.
+  const idToName = {};
+  for (const a of assigned.named) {
+    if (a && a.ok && a.finalName) idToName[a.id] = a.finalName;
+  }
+
+  // Which refs are images? The media refs carry isImage from detection;
+  // only images can be embedded as <img> data URIs.
+  const imageIds = new Set(
+    media.filter(r => r && r.isImage !== false && r.id != null).map(r => r.id)
+  );
+
+  const okAssets = assigned.named.filter(a => a && a.ok && a.path && a.bytes);
+  const embeddable = okAssets.filter(a => imageIds.has(a.id) && typeof a.base64 === 'string');
+  const failedCount = media.length - okAssets.length;
+
+  const base = sanitize(
+    document.getElementById('exportFilename').value.trim() ||
+    buildBaseFilename(detected, labels.userLabel, labels.assistantLabel)
+  );
+
+  // Embedded size = the base64 text that will actually sit inside the file.
+  const embeddedSize = embeddable.reduce((sum, a) => sum + a.base64.length, 0);
+
+  if (embeddedSize > HTML_EMBED_CAP_BYTES) {
+    // Too big for one self-contained file -- zip fallback: the html links
+    // images via relative assets/ paths (renders fine once extracted) and
+    // non-image files ride along in assets/ as clickable links.
+    const html = generateHTML(title || 'Untitled', messages, labels.userLabel, labels.assistantLabel, {
+      idToSrc: assigned.idToPath,
+      idToName: idToName
+    });
+    setStatus('Packing zip...', 'info');
+    let zipBytes;
+    try {
+      const entries = [{ name: base + '.html', data: html }];
+      for (const a of okAssets) entries.push({ name: a.path, data: a.bytes });
+      zipBytes = ZipWriter.createZip(entries);
+    } catch (err) {
+      console.warn('[Exporter] zip failed, exporting plain html:', err);
+      const plain = generateHTML(title || 'Untitled', messages, labels.userLabel, labels.assistantLabel, { idToName: idToName });
+      downloadBlobFile(new Blob([plain], { type: 'text/html' }), base + '.html');
+      setStatus(`Exported ${messages.length} messages (zip failed: ${err.message})`, 'info');
+      return;
+    }
+    downloadBlobViaAnchor(new Blob([zipBytes], { type: 'application/zip' }), base + '.zip');
+    const mb = Math.round(embeddedSize / (1024 * 1024));
+    setStatus(
+      `Media too large to embed (~${mb} MB > 80 MB cap) — exported zip with assets folder instead`,
+      'info'
+    );
+    showWordCount(countWords(messages));
+    return;
+  }
+
+  // Normal path: every downloaded image becomes a data URI at its exact
+  // placeholder position. Failed downloads render as italic notes; non-image
+  // attachments render as labeled "not embeddable" notes (both handled by
+  // MediaUtils.convertPlaceholdersToHtml inside generateHTML).
+  const idToSrc = {};
+  for (const a of embeddable) {
+    const ext = MediaUtils.sniffImageExt(a.bytes) || MediaUtils.extFromMediaType(a.mediaType) || 'png';
+    idToSrc[a.id] = 'data:' + MediaUtils.mimeFromExt(ext) + ';base64,' + a.base64;
+  }
+
+  setStatus(`${messages.length} messages, preparing html...`, 'info');
+  const html = generateHTML(title || 'Untitled', messages, labels.userLabel, labels.assistantLabel, {
+    idToSrc: idToSrc,
+    idToName: idToName
+  });
+
+  downloadBlobFile(new Blob([html], { type: 'text/html' }), base + '.html');
+
+  const embeddedCount = Object.keys(idToSrc).length;
+  const noteParts = [];
+  if (failedCount > 0) noteParts.push(`${failedCount} failed`);
+  const notEmbeddable = okAssets.length - embeddable.length;
+  if (notEmbeddable > 0) noteParts.push(`${notEmbeddable} non-image noted`);
+  const note = noteParts.length ? ` (${noteParts.join(', ')})` : '';
+  setStatus(
+    `Exported ${messages.length} messages + ${embeddedCount} image${embeddedCount === 1 ? '' : 's'} embedded${note} from ${detected.name}`,
+    failedCount > 0 ? 'info' : 'success'
+  );
+  showWordCount(countWords(messages));
+}
+
 // Generators
 function generateMD(title, messages, userLabel, assistantLabel) {
   const counts = countWords(messages);
@@ -382,6 +495,96 @@ function generateJSON(title, messages, userLabel, assistantLabel) {
   }, null, 2);
 }
 
+// v1.5: self-contained HTML export. Same content conventions as generateMD
+// (word-count header, [Label] speaker markers on alternation) rendered as
+// clean semantic HTML with inline CSS -- readable in any browser (and Word/
+// LibreOffice, which both open .html). ALL user/platform text is escaped via
+// MediaUtils (XSS-safe); line breaks are preserved with white-space:pre-wrap.
+// mediaMaps (optional): { idToSrc, idToName } -- see
+// MediaUtils.convertPlaceholdersToHtml for how asset placeholders become
+// <img> tags, links, or visible failure/not-embeddable notes. Without maps
+// (text-only conversations) messages pass through as escaped text.
+function generateHTML(title, messages, userLabel, assistantLabel, mediaMaps) {
+  const esc = MediaUtils.escapeHtml;
+  const idToSrc = (mediaMaps && mediaMaps.idToSrc) || {};
+  const idToName = (mediaMaps && mediaMaps.idToName) || {};
+  const counts = countWords(messages);
+
+  const body = [];
+  let current = null;
+  for (const msg of messages) {
+    const role = msg.role === 'user' ? 'user' : 'assistant';
+    const label = msg.role === 'user' ? userLabel : assistantLabel;
+    if (label !== current) {
+      current = label;
+      body.push(`<div class="speaker ${role}">[${esc(label)}]</div>`);
+    }
+    body.push(`<div class="msg ${role}">${MediaUtils.convertPlaceholdersToHtml(msg.text, idToSrc, idToName)}</div>`);
+  }
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${esc(title)}</title>
+<style>
+  body {
+    font-family: Georgia, 'Times New Roman', serif;
+    line-height: 1.6;
+    color: #222;
+    background: #fdfdfa;
+    max-width: 46rem;
+    margin: 0 auto;
+    padding: 2rem 1.25rem 4rem;
+  }
+  h1 {
+    font-size: 1.6rem;
+    line-height: 1.3;
+    margin: 0 0 0.5rem;
+  }
+  .meta {
+    color: #666;
+    font-size: 0.85rem;
+    border-bottom: 1px solid #ddd;
+    padding-bottom: 1rem;
+    margin-bottom: 1.5rem;
+  }
+  .speaker {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+    font-weight: 700;
+    font-size: 0.85rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    margin: 1.75rem 0 0.5rem;
+  }
+  .speaker.user { color: #1a5fb4; }
+  .speaker.assistant { color: #613583; }
+  .msg {
+    white-space: pre-wrap;      /* preserve the conversation's line breaks */
+    overflow-wrap: break-word;
+    margin: 0 0 0.75rem;
+  }
+  .msg img {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    margin: 0.75rem 0;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+  }
+  .msg em { color: #888; }      /* failure / not-embeddable notes */
+</style>
+</head>
+<body>
+<h1>${esc(title)}</h1>
+<div class="meta">Word count — ${esc(userLabel)}: ${counts.userWords.toLocaleString()} · ${esc(assistantLabel)}: ${counts.assistantWords.toLocaleString()} · Total: ${counts.total.toLocaleString()}</div>
+${body.join('\n')}
+</body>
+</html>
+`;
+}
+
 function countWords(messages) {
   let userWords = 0;
   let assistantWords = 0;
@@ -411,6 +614,7 @@ function sanitize(title) {
 // Event listeners
 document.getElementById('exportMd').addEventListener('click', () => doExport('md'));
 document.getElementById('exportJson').addEventListener('click', () => doExport('json'));
+document.getElementById('exportHtml').addEventListener('click', () => doExport('html'));
 
 // Keep the filename preview in sync with the labels as they're typed.
 document.getElementById('userLabel').addEventListener('input', updateFilenamePreview);

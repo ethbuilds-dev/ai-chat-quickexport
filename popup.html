@@ -74,7 +74,8 @@
 
     .export-btn {
       flex: 1;
-      padding: 10px 14px;
+      /* 6px sides: three buttons must fit the 300px popup */
+      padding: 10px 6px;
       border: 1px solid rgba(255, 255, 255, 0.15);
       border-radius: 8px;
       background: #2a2a5a;
@@ -194,6 +195,10 @@
       <button class="export-btn" id="exportJson">
         <span class="format">.json</span>
         <span class="desc">Structured data</span>
+      </button>
+      <button class="export-btn" id="exportHtml">
+        <span class="format">.html</span>
+        <span class="desc">Opens anywhere</span>
       </button>
     </div>
   </div>
