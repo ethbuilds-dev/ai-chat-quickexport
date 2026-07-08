@@ -411,7 +411,7 @@ function doHtmlMediaExport(detected, media, messages, labels, title, assigned) {
     } catch (err) {
       console.warn('[Exporter] zip failed, exporting plain html:', err);
       const plain = generateHTML(title || 'Untitled', messages, labels.userLabel, labels.assistantLabel, { idToName: idToName });
-      downloadBlobFile(new Blob([plain], { type: 'text/html' }), base + '.html');
+      downloadBlobViaAnchor(new Blob([plain], { type: 'text/html' }), base + '.html');
       setStatus(`Exported ${messages.length} messages (zip failed: ${err.message})`, 'info');
       return;
     }
@@ -441,7 +441,9 @@ function doHtmlMediaExport(detected, media, messages, labels, title, assigned) {
     idToName: idToName
   });
 
-  downloadBlobFile(new Blob([html], { type: 'text/html' }), base + '.html');
+  // Large embedded-image .html hits the same chrome.downloads blob-UUID race
+  // as the zip did (filename dropped to the blob id). Anchor download keeps it.
+  downloadBlobViaAnchor(new Blob([html], { type: 'text/html' }), base + '.html');
 
   const embeddedCount = Object.keys(idToSrc).length;
   const noteParts = [];
