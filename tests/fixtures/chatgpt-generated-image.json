@@ -1,0 +1,76 @@
+{
+  "comment": "Synthetic ChatGPT image-generation conversation. This is the REAL-world DALL-E shape the walker must handle: the assistant-GENERATED image lives on a separate message with author.role='tool' (author.name='dalle.text2im'), NOT in the assistant text message's parts[]. The user ALSO uploaded an image, so both sides carry images — this is exactly Zaina's 2026-07-08 test case. asset_pointer / metadata.attachments / tool-message shapes are INFERRED (docs/v1.5-architecture-notes.md section 2), fixtures for the defensive detector, not verified live output.",
+  "mapping": {
+    "root": { "id": "root", "parent": null, "children": ["n1"] },
+    "n1": {
+      "id": "n1",
+      "parent": "root",
+      "children": ["n2"],
+      "message": {
+        "author": { "role": "user" },
+        "content": {
+          "content_type": "multimodal_text",
+          "parts": [
+            {
+              "content_type": "image_asset_pointer",
+              "asset_pointer": "file-service://file-UserUpload01",
+              "size_bytes": 1234,
+              "width": 512,
+              "height": 512
+            },
+            "Make me a picture like this reference photo."
+          ]
+        },
+        "metadata": {
+          "attachments": [
+            { "id": "file-UserUpload01", "name": "reference.png", "mimeType": "image/png" }
+          ]
+        }
+      }
+    },
+    "n2": {
+      "id": "n2",
+      "parent": "n1",
+      "children": ["n3"],
+      "message": {
+        "author": { "role": "assistant", "name": "dalle.text2im" },
+        "content": { "content_type": "text", "parts": ["{\"prompt\":\"a picture like the reference\",\"size\":\"1024x1024\"}"] }
+      }
+    },
+    "n3": {
+      "id": "n3",
+      "parent": "n2",
+      "children": ["n4"],
+      "message": {
+        "author": { "role": "tool", "name": "dalle.text2im" },
+        "content": {
+          "content_type": "multimodal_text",
+          "parts": [
+            "GENERATED_IMAGE_PROMPT_ECHO_THAT_MUST_NOT_APPEAR_IN_TRANSCRIPT",
+            {
+              "content_type": "image_asset_pointer",
+              "asset_pointer": "sediment://file_GeneratedByDalle99",
+              "size_bytes": 90000,
+              "width": 1024,
+              "height": 1024
+            }
+          ]
+        },
+        "metadata": {
+          "attachments": [
+            { "id": "file_GeneratedByDalle99", "name": "generated.png", "mimeType": "image/png" }
+          ]
+        }
+      }
+    },
+    "n4": {
+      "id": "n4",
+      "parent": "n3",
+      "children": [],
+      "message": {
+        "author": { "role": "assistant" },
+        "content": { "content_type": "text", "parts": ["Here is the image you asked for."] }
+      }
+    }
+  }
+}

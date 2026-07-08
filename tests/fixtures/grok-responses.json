@@ -1,0 +1,46 @@
+{
+  "comment": "Synthetic Grok load-responses payload. `responses[].message`/`sender` is the VERIFIED shape (see background.js fetchGrok). The image fields (generatedImageUrls / attachments[].url / image object) are ENTIRELY INFERRED — no Grok media sample was available. Fixture exercises MediaUtils.collectGrokResponseMedia's defensive feature-detection.",
+  "responses": [
+    {
+      "responseId": "r0",
+      "sender": "human",
+      "message": "Draw me a red fox."
+    },
+    {
+      "responseId": "r1",
+      "sender": "assistant",
+      "message": "Here is your fox:",
+      "generatedImageUrls": [
+        "https://assets.grok.com/generated/fox-abc123.png"
+      ]
+    },
+    {
+      "responseId": "r2",
+      "sender": "assistant",
+      "message": "And two more variations:",
+      "attachments": [
+        { "url": "https://assets.grok.com/generated/fox-v2.png", "fileName": "fox-v2.png" },
+        { "imageUrl": "https://assets.grok.com/generated/fox-v3.png" }
+      ]
+    },
+    {
+      "responseId": "r3",
+      "sender": "assistant",
+      "message": "A plain text reply with no media at all."
+    },
+    {
+      "responseId": "r4",
+      "sender": "assistant",
+      "message": "Single nested image object shape:",
+      "image": { "url": "https://assets.grok.com/generated/fox-single.png", "name": "single.png" }
+    },
+    {
+      "responseId": "r5",
+      "sender": "assistant",
+      "message": "Media-ish attachment with no usable url (should be skipped, not thrown):",
+      "attachments": [
+        { "caption": "no url here", "width": 100 }
+      ]
+    }
+  ]
+}

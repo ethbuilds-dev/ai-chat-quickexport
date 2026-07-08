@@ -11,6 +11,10 @@ const fs = require('fs');
 
 const MediaUtils = require(path.join(__dirname, '..', 'media-utils.js'));
 const ZipWriter = require(path.join(__dirname, '..', 'zipwriter.js'));
+// background.js exports the pure tree-walker under Node (importScripts is
+// guarded; MediaUtils is require()'d there) so the REAL walker — not a copy —
+// is exercised against fixtures.
+const { walkChatGPTTree } = require(path.join(__dirname, '..', 'background.js'));
 
 let passed = 0, failed = 0;
 function check(name, cond, detail) {
@@ -308,6 +312,117 @@ console.log('\n[html export]');
   check('mimeFromExt jpg -> image/jpeg', MediaUtils.mimeFromExt('jpg') === 'image/jpeg');
   check('mimeFromExt webp', MediaUtils.mimeFromExt('webp') === 'image/webp');
   check('mimeFromExt unknown -> octet-stream', MediaUtils.mimeFromExt('xyz') === 'application/octet-stream');
+}
+
+// ---- 7. ChatGPT ASSISTANT-GENERATED image detection (2026-07-08 fix) -----
+// The bug: only USER-uploaded images came out; DALL-E generated images (on a
+// separate role:'tool' message) were dropped because the walker filtered to
+// user/assistant. These tests exercise the REAL walkChatGPTTree over a fixture
+// with images on BOTH sides (Zaina's live test case).
+console.log('\n[chatgpt assistant-generated images]');
+{
+  const fx = loadFixture('chatgpt-generated-image.json');
+
+  // Regression guard: with no mediaOut, walker is text-only and drops all
+  // objects (byte-identical to v1.4.3 behavior).
+  const textOnly = walkChatGPTTree(fx.mapping, undefined);
+  check('text-only walk drops all image objects',
+    textOnly.every(m => m.text.indexOf('](asset:') === -1), JSON.stringify(textOnly));
+  check('text-only walk still emits user + assistant text',
+    textOnly.some(m => m.role === 'user' && m.text.includes('reference photo')) &&
+    textOnly.some(m => m.role === 'assistant' && m.text.includes('Here is the image')),
+    JSON.stringify(textOnly));
+  check('text-only walk emits NO tool chatter',
+    textOnly.every(m => m.text.indexOf('MUST_NOT_APPEAR') === -1), JSON.stringify(textOnly));
+
+  // Media walk: both the user upload AND the generated image are collected.
+  const media = [];
+  const msgs = walkChatGPTTree(fx.mapping, media);
+
+  check('two images collected (user upload + generated)', media.length === 2, media.length);
+
+  const userRef = media.find(r => r.fileId === 'file-UserUpload01');
+  const genRef = media.find(r => r.fileId === 'file_GeneratedByDalle99');
+  check('user-uploaded image ref present', !!userRef, JSON.stringify(media));
+  check('assistant-GENERATED image ref present', !!genRef, JSON.stringify(media));
+  check('generated ref flagged generated:true', !!genRef && genRef.generated === true, genRef && genRef.generated);
+  check('user upload NOT flagged generated', !!userRef && !userRef.generated, userRef && userRef.generated);
+  check('generated ref recovered filename from metadata', !!genRef && genRef.name === 'generated.png', genRef && genRef.name);
+  check('generated ref kind is chatgpt-file', !!genRef && genRef.kind === 'chatgpt-file');
+  check('generated ref flagged isImage', !!genRef && genRef.isImage === true);
+
+  // The generated image's placeholder is emitted on an ASSISTANT-role turn,
+  // and the tool's text chatter is NOT in the transcript.
+  const genPlaceholder = '](asset:' + genRef.id + ')';
+  const turnWithGen = msgs.find(m => m.text.indexOf(genPlaceholder) !== -1);
+  check('generated image emitted on an assistant turn', !!turnWithGen && turnWithGen.role === 'assistant',
+    turnWithGen && turnWithGen.role);
+  // The TOOL message's parts (prompt echo alongside the image) must never
+  // enter the transcript — only its image placeholder does. (The separate
+  // role:'assistant' dalle tool-call message is pre-existing walker behavior
+  // and is out of scope for this image fix.)
+  check('tool-message text chatter never enters transcript',
+    msgs.every(m => m.text.indexOf('MUST_NOT_APPEAR') === -1),
+    JSON.stringify(msgs.map(m => m.text)));
+
+  // Position-encoded naming: the popup derives idToMsg by scanning message
+  // texts for ](asset:ID) in order — replicate that here and confirm the
+  // generated image gets an msgNNN-imgN name at its ASSISTANT position.
+  const idToMsg = {};
+  msgs.forEach((m, i) => {
+    const re = /\]\(asset:([A-Za-z0-9_-]+)\)/g;
+    let mm;
+    while ((mm = re.exec(m.text)) !== null) {
+      if (idToMsg[mm[1]] == null) idToMsg[mm[1]] = i + 1;
+    }
+  });
+  check('generated image has a message position', idToMsg[genRef.id] != null, JSON.stringify(idToMsg));
+
+  const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+  // Simulate the download result WITHOUT a platform name (nameless) so the
+  // position-encoded fallback is exercised.
+  const assigned = MediaUtils.assignAssetNames([
+    { id: genRef.id, ok: true, bytes: png }
+  ], { idToMsg: idToMsg });
+  const genMsgNo = idToMsg[genRef.id];
+  const expectName = 'assets/msg' + String(genMsgNo).padStart(3, '0') + '-img1.png';
+  check('generated image gets position-encoded name (msgNNN-imgN)',
+    assigned.idToPath[genRef.id] === expectName, assigned.idToPath[genRef.id]);
+}
+
+// ---- 8. Grok assistant-generated image detection (INFERRED, defensive) ---
+console.log('\n[grok generated-image detection]');
+{
+  const fx = loadFixture('grok-responses.json');
+  const skips = [];
+  const onSkip = (why) => skips.push(why);
+  const perResponse = fx.responses.map(r => MediaUtils.collectGrokResponseMedia(r, onSkip));
+
+  check('r0 (user text): no media', perResponse[0].length === 0, perResponse[0].length);
+  check('r1: generatedImageUrls -> 1 ref', perResponse[1].length === 1, perResponse[1].length);
+  check('r1: ref is grok-url', perResponse[1][0] && perResponse[1][0].kind === 'grok-url');
+  check('r1: ref flagged generated + image', perResponse[1][0] &&
+    perResponse[1][0].generated === true && perResponse[1][0].isImage === true);
+  check('r1: url carried', perResponse[1][0] &&
+    perResponse[1][0].url === 'https://assets.grok.com/generated/fox-abc123.png', perResponse[1][0] && perResponse[1][0].url);
+
+  check('r2: attachments url + imageUrl -> 2 refs', perResponse[2].length === 2, perResponse[2].length);
+  check('r2: filename recovered where present', perResponse[2].some(r => r.name === 'fox-v2.png'));
+
+  check('r3 (plain text): no media', perResponse[3].length === 0, perResponse[3].length);
+
+  check('r4: single image object -> 1 ref', perResponse[4].length === 1, perResponse[4].length);
+  check('r4: nested object url carried', perResponse[4][0] &&
+    perResponse[4][0].url === 'https://assets.grok.com/generated/fox-single.png');
+
+  check('r5: media-ish w/o url skipped (not thrown)', perResponse[5].length === 0, perResponse[5].length);
+  check('r5: skip was reported', skips.length >= 1, skips.length);
+
+  check('non-object input -> [] (never throws)',
+    Array.isArray(MediaUtils.collectGrokResponseMedia(null)) &&
+    MediaUtils.collectGrokResponseMedia(null).length === 0);
+  check('string message-only response -> [] ',
+    MediaUtils.collectGrokResponseMedia({ message: 'hi', sender: 'assistant' }).length === 0);
 }
 
 // ---- summary -----------------------------------------------------------
