@@ -1,12 +1,25 @@
 // background.js — Service worker for multi-platform AI conversation export
 
 // v1.5 media export: pure helpers (ref detection, placeholders, naming).
-importScripts('media-utils.js');
+// In the service worker, importScripts loads MediaUtils onto `self`. Under
+// Node (tests), importScripts is undefined — require the module instead so the
+// pure tree-walker (walkChatGPTTree) can be unit-tested offline. Neither path
+// touches chrome.* at load time.
+if (typeof importScripts === 'function') {
+  importScripts('media-utils.js');
+} else if (typeof require !== 'undefined') {
+  // eslint-disable-next-line no-global-assign
+  var MediaUtils = require('./media-utils.js');
+}
 
 // Capture Claude's reasoning/"thinking" blocks as //system//...Done blocks
 // (the live data path is fetchClaude here, NOT content.js). 2026-06-13.
 const INCLUDE_SYSTEM_TRACES = true;
 
+// Guard the listener registration so requiring this file under Node (tests,
+// which exercise the pure walkChatGPTTree below) does not touch chrome.*.
+// In the service worker `chrome` is always defined, so this is a no-op there.
+if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'CAPTURE_AND_FETCH') {
     let { conversationId, tabId, platform } = message;
@@ -37,6 +50,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 });
+}
 
 // ── Token Capture ─────────────────────────────────────────────────────
 
@@ -349,15 +363,48 @@ async function fetchGrok(conversationId, token) {
     title = convData.conversation?.title || title;
   }
 
-  // Step 4: Normalize messages
-  const messages = responses
-    .filter(r => r.message && r.message.trim())
-    .map(r => ({
-      role: r.sender === 'human' ? 'user' : 'assistant',
-      text: r.message.trim()
-    }));
+  // Step 4: Normalize messages.
+  // v1.5 (2026-07-08): defensively scan each response for ASSISTANT-GENERATED
+  // images (Grok/Aurora). The field shapes are entirely INFERRED (no Grok
+  // media sample was available) — MediaUtils.collectGrokResponseMedia
+  // feature-detects a handful of plausible url-bearing shapes and returns []
+  // for anything unrecognized, never throwing. When media is found, a
+  // placeholder is appended to that message's text and a `media` ref is
+  // collected; when none is found the output is byte-identical to before.
+  const media = [];
+  const onSkip = (why, entry) => {
+    try {
+      console.warn('[Exporter] media: skipped (' + why + '):',
+        JSON.stringify(entry).slice(0, 300));
+    } catch (e) {}
+  };
+  const messages = [];
+  for (const r of responses) {
+    const role = r.sender === 'human' ? 'user' : 'assistant';
+    let text = (r.message && r.message.trim()) ? r.message.trim() : '';
+    let refs = [];
+    try {
+      refs = MediaUtils.collectGrokResponseMedia(r, onSkip) || [];
+    } catch (e) {
+      // Never let inferred media detection break a working text export.
+      onSkip('grok media detection threw', { error: e && e.message });
+      refs = [];
+    }
+    if (refs.length > 0) {
+      const phs = [];
+      for (const ref of refs) {
+        const id = 'm' + media.length;
+        media.push(Object.assign({ id }, ref));
+        phs.push(MediaUtils.makePlaceholder(id, ref.alt, ref.isImage));
+      }
+      text = [text, phs.join('\n')].filter(Boolean).join('\n\n');
+    }
+    if (text) messages.push({ role, text });
+  }
 
-  return { title, messages, platform: 'grok' };
+  const result = { title, messages, platform: 'grok' };
+  if (media.length > 0) result.media = media;
+  return result;
 }
 
 // ── Tree Walkers ──────────────────────────────────────────────────────
@@ -366,6 +413,23 @@ async function fetchGrok(conversationId, token) {
 // non-string content parts; each becomes an in-text ![alt](asset:<id>)
 // placeholder. With no media present, output is identical to v1.4.3
 // (string parts trimmed and joined, objects dropped).
+//
+// v1.5 (2026-07-08, assistant-generated-image fix): the walker now also scans
+// `role === 'tool'` messages for image asset pointers. This is where
+// ChatGPT/DALL-E puts ASSISTANT-GENERATED images — NOT in the assistant text
+// message's parts[], but in a separate tool message (author.name like
+// 'dalle.text2im'). The previous walker filtered to user/assistant only, so
+// generated images were silently dropped (bug reported by Zaina 2026-07-08:
+// only user-uploaded images came out). Tool messages contribute their image
+// placeholder(s) to the transcript but NOT their text/JSON chatter — that
+// chatter (prompt echoes, tool JSON) is not conversational content. When a
+// tool message carries image media, its placeholder is attributed to the
+// role we emit as 'assistant' so it reads as an assistant turn.
+//
+// INFERRED (no live ChatGPT fixture): that generated images live on a
+// `tool`-role message whose content.parts[] holds image_asset_pointer objects.
+// Defensive: if a tool message has no recognizable image part, it is skipped
+// exactly as before (nothing emitted), never thrown.
 function walkChatGPTTree(mapping, mediaOut) {
   const messages = [];
   if (!mapping) return messages;
@@ -419,6 +483,29 @@ function walkChatGPTTree(mapping, mediaOut) {
         if (parts.length > 0) {
           messages.push({ role, text: parts.join('\n\n') });
         }
+      } else if (role === 'tool' && mediaOut) {
+        // ASSISTANT-GENERATED image path (INFERRED shape). Collect image
+        // asset pointers only; emit ONLY the placeholder(s), never the tool's
+        // textual chatter. If nothing image-like is found, emit nothing.
+        const attNames = MediaUtils.chatgptAttachmentNames(node.message.metadata);
+        const placeholders = [];
+        for (const p of (node.message.content?.parts || [])) {
+          if (p == null || typeof p !== 'object') continue; // strings = tool chatter, drop
+          const ref = MediaUtils.chatgptPartMedia(p);
+          if (ref) {
+            const id = 'm' + mediaOut.length;
+            const name = attNames[ref.fileId] || null;
+            // Mark generated so a reviewer can tell uploads from generations.
+            mediaOut.push(Object.assign({ id }, ref, { name, alt: name || ref.alt, generated: true }));
+            placeholders.push(MediaUtils.makePlaceholder(id, name || ref.alt, ref.isImage));
+          }
+          // Non-image tool parts are intentionally ignored (not logged as
+          // "unknown" — tool messages routinely carry non-media JSON).
+        }
+        if (placeholders.length > 0) {
+          // Attribute the generated image(s) to an assistant turn.
+          messages.push({ role: 'assistant', text: placeholders.join('\n\n') });
+        }
       }
     }
 
@@ -468,6 +555,8 @@ async function fetchMediaAssets(media, platform, tabId) {
         assets.push(await fetchClaudeAsset(ref));
       } else if (ref.kind === 'chatgpt-file') {
         assets.push(await fetchChatGPTAsset(ref, tabId));
+      } else if (ref.kind === 'grok-url') {
+        assets.push(await fetchGrokAsset(ref));
       } else {
         assets.push({ id: ref.id, name: ref.name || null, ok: false, error: 'unknown media kind: ' + ref.kind });
       }
@@ -491,6 +580,31 @@ async function fetchClaudeAsset(ref) {
   const ct = resp.headers.get('content-type') || '';
   if (ct.indexOf('text/html') !== -1) {
     // A login/interstitial page, not the asset.
+    return { id: ref.id, name: ref.name || null, ok: false, error: 'got HTML instead of file (auth?)' };
+  }
+  const buf = await resp.arrayBuffer();
+  if (buf.byteLength === 0) {
+    return { id: ref.id, name: ref.name || null, ok: false, error: 'empty response' };
+  }
+  return { id: ref.id, name: ref.name || null, base64: bufToBase64(buf), mediaType: ct.split(';')[0] || null, ok: true };
+}
+
+// Grok assets (INFERRED, 2026-07-08): assistant-generated image URLs. The URL
+// shape is guessed (see MediaUtils.collectGrokResponseMedia), so this is a
+// plain, defensive cookie-authenticated service-worker fetch — grok.com runs
+// no bot protection on its API (verified for the conversation fetch), and a
+// CDN URL just ignores the cookies. Relative urls are resolved against
+// grok.com. Per-asset failure is non-fatal (returns ok:false).
+async function fetchGrokAsset(ref) {
+  const url = (typeof ref.url === 'string' && ref.url.startsWith('/'))
+    ? 'https://grok.com' + ref.url
+    : ref.url;
+  const resp = await fetch(url, { credentials: 'include' });
+  if (!resp.ok) {
+    return { id: ref.id, name: ref.name || null, ok: false, error: 'HTTP ' + resp.status };
+  }
+  const ct = resp.headers.get('content-type') || '';
+  if (ct.indexOf('text/html') !== -1) {
     return { id: ref.id, name: ref.name || null, ok: false, error: 'got HTML instead of file (auth?)' };
   }
   const buf = await resp.arrayBuffer();
@@ -601,4 +715,10 @@ async function fetchChatGPTAsset(ref, tabId) {
     }
   }
   return { id: ref.id, name: ref.name || null, ok: false, error: payload.error || 'unknown media failure' };
+}
+
+// Node-only export so the pure tree-walker can be exercised by tests/ against
+// real fixtures. No effect in the service worker (module is undefined there).
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { walkChatGPTTree: walkChatGPTTree };
 }

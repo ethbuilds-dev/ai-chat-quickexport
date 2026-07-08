@@ -347,6 +347,81 @@
     };
   }
 
+  // ---- Grok detection (INFERRED) -------------------------------------------
+  // Grok's REST load-responses payload is normalized in background.js from
+  // `responses[].message` (text) — that path is VERIFIED. Whether Grok exposes
+  // ASSISTANT-GENERATED images (Aurora/Flux) in that same response object, and
+  // under which field, is entirely INFERRED: no Grok media fixture or live
+  // sample was available. This detector is therefore purely defensive —
+  // feature-detect a small set of plausible image-URL-bearing shapes, return a
+  // list of refs, and return [] (never throw) for anything unrecognized.
+  //
+  // Recognized (guessed) shapes on a single `response` object:
+  //   response.generatedImageUrls: [ 'https://...' , ... ]   (array of urls)
+  //   response.imageUrls / response.image_urls: [ url, ... ]
+  //   response.attachments / response.mediaAttachments: [ { url|imageUrl|image_url, fileName|name } ]
+  //   response.image / response.generatedImage: { url|imageUrl|image_url }
+  // Each url becomes a { kind:'grok-url', url, name, alt:'generated image',
+  // isImage:true, generated:true } ref. onSkip(reason, entry) is called for
+  // entries that look media-ish but carry no usable url.
+  function collectGrokResponseMedia(response, onSkip) {
+    const refs = [];
+    if (!response || typeof response !== 'object') return refs;
+
+    const pushUrl = function (url, name) {
+      if (typeof url !== 'string' || !url) return false;
+      refs.push({
+        kind: 'grok-url',
+        url: url,
+        name: name || null,
+        alt: name || 'generated image',
+        isImage: true,
+        generated: true
+      });
+      return true;
+    };
+
+    // 1) Plain url-array fields.
+    const urlArrayKeys = ['generatedImageUrls', 'imageUrls', 'image_urls'];
+    for (let i = 0; i < urlArrayKeys.length; i++) {
+      const arr = response[urlArrayKeys[i]];
+      if (Array.isArray(arr)) {
+        for (const u of arr) pushUrl(u, null);
+      }
+    }
+
+    // 2) Attachment-like arrays of objects.
+    const attArrayKeys = ['attachments', 'mediaAttachments', 'media', 'images'];
+    for (let i = 0; i < attArrayKeys.length; i++) {
+      const arr = response[attArrayKeys[i]];
+      if (!Array.isArray(arr)) continue;
+      for (const a of arr) {
+        if (!a || typeof a !== 'object') {
+          if (typeof a === 'string' && a) { pushUrl(a, null); continue; }
+          continue;
+        }
+        const url = a.url || a.imageUrl || a.image_url || a.downloadUrl || a.download_url || firstUrlField(a);
+        const name = a.fileName || a.file_name || a.name || null;
+        if (url) pushUrl(url, name);
+        else if (onSkip) onSkip('grok attachment without usable url', a);
+      }
+    }
+
+    // 3) Single nested image object.
+    const objKeys = ['image', 'generatedImage', 'generated_image'];
+    for (let i = 0; i < objKeys.length; i++) {
+      const o = response[objKeys[i]];
+      if (o && typeof o === 'object') {
+        const url = o.url || o.imageUrl || o.image_url || firstUrlField(o);
+        const name = o.fileName || o.file_name || o.name || null;
+        if (url) pushUrl(url, name);
+        else if (onSkip) onSkip('grok image object without usable url', o);
+      }
+    }
+
+    return refs;
+  }
+
   // message.metadata.attachments[] (INFERRED): [{id:'file-XXX', name, mimeType|mime_type}]
   // Used only to recover human filenames for asset pointers.
   function chatgptAttachmentNames(metadata) {
@@ -426,6 +501,7 @@
     collectClaudeMessageMedia: collectClaudeMessageMedia,
     chatgptPartMedia: chatgptPartMedia,
     chatgptAttachmentNames: chatgptAttachmentNames,
+    collectGrokResponseMedia: collectGrokResponseMedia,
     assignAssetNames: assignAssetNames
   };
 });
