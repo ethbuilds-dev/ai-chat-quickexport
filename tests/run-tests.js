@@ -243,6 +243,73 @@ function readZip(buf) {
   check('real upload name beats position', asg3.idToPath.n === 'assets/photo.jpg', asg3.idToPath.n);
 }
 
+// ---- 6. HTML export helpers (v1.5 self-contained .html deliverable) -----
+console.log('\n[html export]');
+{
+  const esc = MediaUtils.escapeHtml;
+  check('escapeHtml covers & < > " \'',
+    esc('<a href="x" onclick=\'y\'>&</a>') === '&lt;a href=&quot;x&quot; onclick=&#39;y&#39;&gt;&amp;&lt;/a&gt;',
+    esc('<a href="x" onclick=\'y\'>&</a>'));
+  check('escapeHtml null -> empty string', esc(null) === '');
+  check('escapeHtml number coerced', esc(42) === '42');
+
+  const conv = MediaUtils.convertPlaceholdersToHtml;
+
+  // XSS: script injection in message text must stay inert.
+  const evil = 'hi <script>alert(1)</script> ![shot](asset:a) tail <img src=x onerror=alert(2)>';
+  const out = conv(evil, { a: 'data:image/png;base64,AAAA' }, { a: 'msg001-img1.png' });
+  check('script tag inert (escaped)', out.indexOf('<script') === -1 && out.includes('&lt;script&gt;alert(1)&lt;/script&gt;'), out);
+  check('user-written img tag inert', out.indexOf('<img src=x') === -1 && out.includes('&lt;img src=x'));
+  check('placeholder -> img with data uri', out.includes('<img src="data:image/png;base64,AAAA"'), out);
+  check('position-encoded name as alt+title',
+    out.includes('alt="msg001-img1.png"') && out.includes('title="msg001-img1.png"'), out);
+  check('surrounding text preserved in order',
+    out.startsWith('hi ') && out.indexOf('&lt;script') < out.indexOf('<img src="data:') &&
+    out.indexOf('<img src="data:') < out.indexOf(' tail '), out);
+
+  // Failed download: image placeholder with no src -> italic note, same
+  // wording convention as rewriteAssetLinks.
+  const fail = conv('x ![shot](asset:z) y', {}, {});
+  check('failed image -> visible italic note',
+    fail === 'x <em>[shot -- not exported (download failed or unsupported)]</em> y', fail);
+
+  // Non-image attachment in embed mode (no src): labeled "not embeddable".
+  const att = conv('see [server.log](asset:t)', {}, { t: 'server.log' });
+  check('non-image w/o src -> not-embeddable note',
+    att === 'see <em>[server.log -- attachment, not embeddable in HTML export]</em>', att);
+
+  // Non-image WITH src (zip-fallback mode): rendered as a relative link.
+  const lnk = conv('see [server.log](asset:t)', { t: 'assets/server.log' }, { t: 'server.log' });
+  check('non-image with path -> anchor',
+    lnk === 'see <a href="assets/server.log">server.log</a>', lnk);
+
+  // Relative-path src for images (zip-fallback mode) also works.
+  const rel = conv('![shot](asset:a)', { a: 'assets/msg002-img1.png' }, { a: 'msg002-img1.png' });
+  check('image with relative path src',
+    rel === '<img src="assets/msg002-img1.png" alt="msg002-img1.png" title="msg002-img1.png">', rel);
+
+  // No-media pass-through: text without placeholders is only escaped.
+  check('no placeholders -> escaped pass-through', conv('a < b & c', {}, {}) === 'a &lt; b &amp; c');
+  check('plain text identity', conv('hello world', {}, {}) === 'hello world');
+  check('non-string -> empty string', conv(undefined, {}, {}) === '');
+
+  // Attribute injection: a quote in the alt cannot break out of alt="...".
+  const q = conv('!["quoted"](asset:a)', { a: 'data:image/png;base64,AA' }, {});
+  check('quotes in alt escaped inside attribute',
+    q === '<img src="data:image/png;base64,AA" alt="&quot;quoted&quot;" title="&quot;quoted&quot;">', q);
+
+  // Alt fallback order: final name beats alt beats id.
+  check('label falls back to alt when no name',
+    conv('![diagram](asset:a)', { a: 'data:image/png;base64,AA' }, {}).includes('alt="diagram"'));
+  check('label falls back to id when no name and no alt',
+    conv('![](asset:a)', { a: 'data:image/png;base64,AA' }, {}).includes('alt="a"'));
+
+  check('mimeFromExt png', MediaUtils.mimeFromExt('png') === 'image/png');
+  check('mimeFromExt jpg -> image/jpeg', MediaUtils.mimeFromExt('jpg') === 'image/jpeg');
+  check('mimeFromExt webp', MediaUtils.mimeFromExt('webp') === 'image/webp');
+  check('mimeFromExt unknown -> octet-stream', MediaUtils.mimeFromExt('xyz') === 'application/octet-stream');
+}
+
 // ---- summary -----------------------------------------------------------
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed === 0 ? 0 : 1);

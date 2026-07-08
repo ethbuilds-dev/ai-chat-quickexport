@@ -65,6 +65,97 @@
     });
   }
 
+  // ---- HTML export (v1.5) --------------------------------------------------
+  // The self-contained .html deliverable embeds images as data URIs at their
+  // placeholder positions. Everything here is pure string logic so the
+  // XSS-safety and placeholder conversion are offline-testable.
+
+  // Escape a string for safe interpolation into HTML text OR double-quoted
+  // attribute values. Covers the five characters that matter; everything a
+  // platform or user typed goes through here before touching the document.
+  function escapeHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  // ext (as returned by sniffImageExt/extFromMediaType) -> MIME for data URIs.
+  function mimeFromExt(ext) {
+    switch (String(ext || '').toLowerCase()) {
+      case 'png': return 'image/png';
+      case 'jpg':
+      case 'jpeg': return 'image/jpeg';
+      case 'gif': return 'image/gif';
+      case 'webp': return 'image/webp';
+      default: return 'application/octet-stream';
+    }
+  }
+
+  /**
+   * Convert one message text (raw, still carrying asset placeholders) into
+   * HTML. ALL text is escaped -- a message containing "<script>" renders as
+   * literal text, never as markup. Placeholders become, in order of priority:
+   *
+   *   ![alt](asset:id) + idToSrc[id]      -> <img src="..." alt/title="name">
+   *        src may be a data URI (self-contained export) or a relative
+   *        assets/ path (zip-fallback export) -- the caller decides.
+   *   ![alt](asset:id) + no src           -> italic failure note, same wording
+   *        convention as rewriteAssetLinks so the two formats stay consistent.
+   *   [alt](asset:id)  + idToSrc[id]      -> <a href="src">name</a>
+   *        (zip fallback: non-image files exist on disk next to the html).
+   *   [alt](asset:id)  + no src           -> italic "not embeddable" note
+   *        (self-contained export: non-image attachments have no inline form).
+   *
+   * @param {string} text
+   * @param {Object<string,string>} idToSrc   asset id -> img src / link href
+   * @param {Object<string,string>} idToName  asset id -> final filename
+   *        (position-encoded, e.g. msg012-img1.png) used as alt/title so an
+   *        image that fails to render still says where it belongs.
+   */
+  function convertPlaceholdersToHtml(text, idToSrc, idToName) {
+    if (typeof text !== 'string') return '';
+    if (text.indexOf('](asset:') === -1) return escapeHtml(text);
+    // Fresh regex: PLACEHOLDER_RE is shared and sticky lastIndex across
+    // callers would drop matches.
+    const re = new RegExp(PLACEHOLDER_RE.source, 'g');
+    let out = '';
+    let last = 0;
+    let m;
+    while ((m = re.exec(text)) !== null) {
+      out += escapeHtml(text.slice(last, m.index));
+      last = m.index + m[0].length;
+      const isImage = m[1] === '!';
+      const alt = m[2];
+      const id = m[3];
+      const src = idToSrc ? idToSrc[id] : null;
+      const name = (idToName && idToName[id]) || null;
+      // Prefer the position-encoded final filename; fall back to the
+      // placeholder alt, then the raw id -- never an empty label.
+      const label = name || alt || id;
+      if (isImage) {
+        if (src) {
+          out += '<img src="' + escapeHtml(src) + '" alt="' + escapeHtml(label) +
+                 '" title="' + escapeHtml(label) + '">';
+        } else {
+          out += '<em>[' + escapeHtml(alt || 'attachment') +
+                 ' -- not exported (download failed or unsupported)]</em>';
+        }
+      } else {
+        if (src) {
+          out += '<a href="' + escapeHtml(src) + '">' + escapeHtml(label) + '</a>';
+        } else {
+          out += '<em>[' + escapeHtml(label) +
+                 ' -- attachment, not embeddable in HTML export]</em>';
+        }
+      }
+    }
+    out += escapeHtml(text.slice(last));
+    return out;
+  }
+
   // ---- Filenames ---------------------------------------------------------
 
   function sanitizeAssetName(name) {
@@ -323,6 +414,9 @@
     makePlaceholder: makePlaceholder,
     PLACEHOLDER_RE: PLACEHOLDER_RE,
     rewriteAssetLinks: rewriteAssetLinks,
+    escapeHtml: escapeHtml,
+    mimeFromExt: mimeFromExt,
+    convertPlaceholdersToHtml: convertPlaceholdersToHtml,
     sanitizeAssetName: sanitizeAssetName,
     uniqueName: uniqueName,
     sniffImageExt: sniffImageExt,
