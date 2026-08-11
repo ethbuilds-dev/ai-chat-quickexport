@@ -43,9 +43,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // v1.5: download the media assets referenced by a previous CAPTURE_AND_FETCH.
   // Sent by the popup only when that response carried a non-empty `media`
   // array, so conversations without media never reach this path.
+  // DEPRECATED for image batches: the single response carries every asset's
+  // base64, and Chrome caps one extension message at ~64 MB — a 100-image
+  // conversation (~200 MB raw, ~270 MB base64) kills the whole response and
+  // every image exports as a failure note (field failure, 2026-08-06 export).
+  // The popup now sends FETCH_MEDIA_ONE per ref; this stays for compatibility.
   if (message.type === 'FETCH_MEDIA') {
     fetchMediaAssets(message.media || [], message.platform, message.tabId)
       .then(assets => sendResponse({ assets }))
+      .catch(err => sendResponse({ error: err.message }));
+    return true;
+  }
+
+  // v1.5.1: one asset per message, so no response ever approaches the ~64 MB
+  // message cap (a single image tops out around 2-8 MB base64). Same fetch
+  // logic, same per-asset failure semantics.
+  if (message.type === 'FETCH_MEDIA_ONE') {
+    fetchMediaAssets([message.ref], message.platform, message.tabId)
+      .then(assets => sendResponse({ asset: assets[0] || null }))
       .catch(err => sendResponse({ error: err.message }));
     return true;
   }

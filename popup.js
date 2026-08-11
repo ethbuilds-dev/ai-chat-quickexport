@@ -240,21 +240,32 @@ function downloadBlobFile(blob, filename) {
 async function doMediaExport(detected, tab, media, messages, labels, format, title) {
   setStatus(`Downloading ${media.length} attachment${media.length === 1 ? '' : 's'}...`, 'info');
 
-  let assets = [];
-  try {
-    const resp = await chrome.runtime.sendMessage({
-      type: 'FETCH_MEDIA',
-      media,
-      platform: detected.platform,
-      tabId: tab.id
-    });
-    if (resp && Array.isArray(resp.assets)) {
-      assets = resp.assets;
-    } else if (resp && resp.error) {
-      console.warn('[Exporter] media fetch error:', resp.error);
+  // One FETCH_MEDIA_ONE message per asset — never the whole batch in a single
+  // response. Chrome caps an extension message at ~64 MB; a 100-image
+  // conversation is ~270 MB of base64, so the old bulk FETCH_MEDIA response
+  // died in transit and EVERY image exported as a failure note (2026-08-06
+  // field failure). Per-asset messages top out around 2-8 MB. A failed
+  // message only fails its own asset, and the popup shows live progress.
+  const assets = [];
+  for (let i = 0; i < media.length; i++) {
+    const ref = media[i];
+    setStatus(`Downloading attachment ${i + 1}/${media.length}...`, 'info');
+    try {
+      const resp = await chrome.runtime.sendMessage({
+        type: 'FETCH_MEDIA_ONE',
+        ref,
+        platform: detected.platform,
+        tabId: tab.id
+      });
+      if (resp && resp.asset) {
+        assets.push(resp.asset);
+      } else {
+        assets.push({ id: ref.id, name: ref.name || null, ok: false, error: (resp && resp.error) || 'no response from background' });
+      }
+    } catch (err) {
+      console.warn('[Exporter] media fetch failed for asset ' + ref.id + ':', err);
+      assets.push({ id: ref.id, name: ref.name || null, ok: false, error: err.message });
     }
-  } catch (err) {
-    console.warn('[Exporter] media fetch failed:', err);
   }
 
   // Decode to bytes (needed for sniffing and for the zip entries).

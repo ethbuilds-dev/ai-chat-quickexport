@@ -425,6 +425,23 @@ console.log('\n[grok generated-image detection]');
     MediaUtils.collectGrokResponseMedia({ message: 'hi', sender: 'assistant' }).length === 0);
 }
 
+// ---- structural: media transfer stays chunked --------------------------
+// The chrome.* message layer can't run under Node, but the 2026-08-06 field
+// failure (100-image export -> one ~270 MB FETCH_MEDIA response -> Chrome's
+// ~64 MB message cap kills it -> EVERY image becomes a failure note) must
+// never quietly come back. Tripwire on the source itself.
+console.log('\n[structural: chunked media transfer]');
+{
+  const popupSrc = fs.readFileSync(path.join(__dirname, '..', 'popup.js'), 'utf8');
+  const bgSrc = fs.readFileSync(path.join(__dirname, '..', 'background.js'), 'utf8');
+
+  check('popup sends FETCH_MEDIA_ONE (per-asset)', popupSrc.includes("type: 'FETCH_MEDIA_ONE'"));
+  check('popup no longer sends bulk FETCH_MEDIA', !popupSrc.includes("type: 'FETCH_MEDIA',"));
+  check('popup shows per-asset progress', /Downloading attachment \$\{i \+ 1\}/.test(popupSrc));
+  check('background handles FETCH_MEDIA_ONE', bgSrc.includes("message.type === 'FETCH_MEDIA_ONE'"));
+  check('background per-one returns single asset key', bgSrc.includes('asset: assets[0]'));
+}
+
 // ---- summary -----------------------------------------------------------
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed === 0 ? 0 : 1);
