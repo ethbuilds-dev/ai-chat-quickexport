@@ -291,6 +291,46 @@
     });
   }
 
+  // Files the USER uploaded into a Grok conversation. Measured 2026-08-22/23
+  // on a live chat, after an export came back without them:
+  //   response.fileAttachments[i]              -> the file uuid (a bare string)
+  //   response.fileAttachmentsMetadata[i]      -> { fileName, fileMimeType, fileUri }
+  //   response.fileAttachmentAssetMetadata[i]  -> { assetId, key, previewImageKey,
+  //                                                 sizeBytes, mimeType, name }
+  // `key` is a path under https://assets.grok.com/ ending in /content and it
+  // serves the ORIGINAL bytes -- for one measured upload, 324,893 bytes, the
+  // exact sizeBytes from the metadata. `previewImageKey` ends in /preview-image
+  // and gave 7,196 bytes for the same file, so it is only a fallback.
+  // The three arrays line up by index. These are the user's own files on the
+  // platform's own host: they are downloaded like any attachment.
+  function collectGrokUploadMedia(response, onSkip) {
+    const refs = [];
+    if (!response || typeof response !== 'object') return refs;
+    const meta = Array.isArray(response.fileAttachmentsMetadata) ? response.fileAttachmentsMetadata : [];
+    const assets = Array.isArray(response.fileAttachmentAssetMetadata) ? response.fileAttachmentAssetMetadata : [];
+    const count = Math.max(meta.length, assets.length);
+    for (let i = 0; i < count; i++) {
+      const m = meta[i] || {};
+      const a = assets[i] || {};
+      const rel = a.key || a.previewImageKey;
+      const name = m.fileName || a.name || null;
+      if (typeof rel !== 'string' || !rel) {
+        if (name && onSkip) onSkip('grok upload without a storage key', { name: name });
+        continue;
+      }
+      const mime = String(m.fileMimeType || a.mimeType || '');
+      refs.push({
+        kind: 'grok-url',
+        url: /^https?:\/\//i.test(rel) ? rel : GROK_ASSETS + rel.replace(/^\/+/, ''),
+        name: name,
+        alt: name || 'attachment',
+        isImage: mime.indexOf('image/') === 0,
+        uploaded: true
+      });
+    }
+    return refs;
+  }
+
   // ---- Filenames ---------------------------------------------------------
 
   function sanitizeAssetName(name) {
@@ -684,6 +724,7 @@
     collectGrokResponseMedia: collectGrokResponseMedia,
     rewriteGrokRenderTags: rewriteGrokRenderTags,
     collectGrokCardMedia: collectGrokCardMedia,
+    collectGrokUploadMedia: collectGrokUploadMedia,
     grokGeneratedCardRef: grokGeneratedCardRef,
     grokCardIndex: grokCardIndex,
     assignAssetNames: assignAssetNames

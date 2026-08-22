@@ -684,6 +684,57 @@ console.log('\n[structural: grok asset host]');
     src.indexOf('collectGrokCardMedia') < src.indexOf('rewriteGrokRenderTags(text, r, cardPlaceholders)'));
 }
 
+// ---- grok: files SHE uploaded ------------------------------------------
+// The export came back without them and she said so. Measured on the live
+// chat: three parallel arrays, and `key` (.../content) serves the original -
+// 324,893 bytes for the file whose metadata said sizeBytes 324893, while
+// previewImageKey (.../preview-image) gave 7,196.
+console.log('\n[grok: user uploads]');
+{
+  const resp = {
+    fileAttachments: ['u1', 'u2'],
+    fileAttachmentsMetadata: [
+      { fileName: 'Kin.jpg', fileMimeType: 'image/jpeg', fileUri: 'u1' },
+      { fileName: 'notes.txt', fileMimeType: 'text/plain', fileUri: 'u2' }
+    ],
+    fileAttachmentAssetMetadata: [
+      { assetId: 'a1', key: 'users/uid/a1/content', previewImageKey: 'users/uid/a1/preview-image', sizeBytes: 324893 },
+      { assetId: 'a2', previewImageKey: 'users/uid/a2/preview-image' }
+    ]
+  };
+  const refs = MediaUtils.collectGrokUploadMedia(resp);
+  check('every upload becomes a ref', refs.length === 2, refs.length);
+  check('the ORIGINAL is preferred over the preview',
+    refs[0].url === 'https://assets.grok.com/users/uid/a1/content', refs[0].url);
+  check('preview is used only when there is no original',
+    refs[1].url === 'https://assets.grok.com/users/uid/a2/preview-image', refs[1].url);
+  check('her filename is kept', refs[0].name === 'Kin.jpg', refs[0].name);
+  check('images flagged as images', refs[0].isImage === true);
+  check('a text upload is not an image', refs[1].isImage === false);
+  check('marked as uploaded, not generated', refs[0].uploaded === true && !refs[0].generated);
+
+  const skips = [];
+  const noKey = MediaUtils.collectGrokUploadMedia({
+    fileAttachmentsMetadata: [{ fileName: 'ghost.png' }],
+    fileAttachmentAssetMetadata: [{ assetId: 'a3' }]
+  }, r => skips.push(r));
+  check('an upload with no storage key is reported, not invented',
+    noKey.length === 0 && skips.length === 1, skips);
+
+  check('garbage never throws',
+    MediaUtils.collectGrokUploadMedia(null).length === 0 &&
+    MediaUtils.collectGrokUploadMedia({ fileAttachmentsMetadata: 'x' }).length === 0);
+}
+
+// ---- structural: uploads reach the export ------------------------------
+console.log('\n[structural: grok uploads wired]');
+{
+  const src = fs.readFileSync(path.join(__dirname, '..', 'background.js'), 'utf8');
+  check('fetchGrok collects uploads', src.indexOf('collectGrokUploadMedia(r, onSkip)') !== -1);
+  check('uploads come before the inferred shapes',
+    src.indexOf('collectGrokUploadMedia') < src.indexOf('collectGrokResponseMedia(r, onSkip)'));
+}
+
 // ---- summary -----------------------------------------------------------
 RETRY_SUITE.then(() => {
   console.log('\n' + passed + ' passed, ' + failed + ' failed');

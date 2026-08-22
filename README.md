@@ -58,6 +58,11 @@ No data collection. No external servers. No tracking. Everything local.
 
 ## Changelog
 
+- **1.5.8** — Files you uploaded into a Grok conversation are exported too.
+  They are declared across three parallel arrays and identified by a storage
+  key rather than a URL, which is why earlier versions walked straight past
+  them; the key that ends in /content serves the original bytes, and that is
+  what is fetched, with your own filename kept.
 - **1.5.7** — Grok images that Grok made for you are now exported as files.
   A generated-image card writes an EMPTY tag into the message (it identifies
   itself only by card id) while the picture, its prompt and its address live

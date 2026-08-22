@@ -426,7 +426,10 @@ async function fetchGrok(conversationId, token) {
     }
     let refs = [];
     try {
-      refs = MediaUtils.collectGrokResponseMedia(r, onSkip) || [];
+      // Her own uploads first (they have no tag in the text, so their
+      // placeholders are appended), then the inferred generated-image shapes.
+      refs = (MediaUtils.collectGrokUploadMedia(r, onSkip) || [])
+        .concat(MediaUtils.collectGrokResponseMedia(r, onSkip) || []);
     } catch (e) {
       // Never let inferred media detection break a working text export.
       onSkip('grok media detection threw', { error: e && e.message });
