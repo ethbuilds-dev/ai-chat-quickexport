@@ -567,8 +567,24 @@ console.log('\n[structural: downloads]');
   check('no chrome.downloads call sites left', calls === 0, String(calls));
   check('downloads permission dropped', mf.permissions.indexOf('downloads') === -1, mf.permissions.join(','));
   check('every export goes through the anchor', /function downloadBlobFile\(blob, filename\) \{\s+downloadBlobViaAnchor/.test(popupSrc));
-  check('manifest version is 1.5.1', mf.version === '1.5.1', mf.version);
+  // Not pinned to a number: a test that fails on every bump teaches you to ignore tests.
+  check('manifest version is a released shape (x.y.z, >= 1.5)', /^1\.(?:[5-9]|\d{2,})\.\d+$/.test(mf.version), mf.version);
   check('no draft marker left in the manifest', !mf.version_name, String(mf.version_name));
+}
+// ---- reopening the popup must not cost her work ------------------------
+// Chrome destroys a browser-action popup on blur (dismissing the download
+// bubble is enough) and no API prevents it. So reopening has to be cheap:
+// the typed filename and the last status are remembered per conversation.
+console.log('\n[structural: popup memory across reopen]');
+{
+  const src = fs.readFileSync(path.join(__dirname, '..', 'popup.js'), 'utf8');
+  check('memory is keyed per conversation', /function memoryKey\(detected\)[\s\S]{0,140}detected\.conversationId/.test(src));
+  check('typed filename is stored', /function rememberFilename/.test(src));
+  check('last status is stored', /function rememberStatus/.test(src));
+  check('the field listens for her typing', /getElementById\('exportFilename'\)\.addEventListener\('input'/.test(src));
+  check('her name wins over the generated one', /rec\.filename \|\| auto/.test(src));
+  check('a finished export leaves the note', /type === 'success' && CURRENT/.test(src));
+  check('uses storage.local, not sync (per-machine, no quota games)', src.indexOf('chrome.storage.local') !== -1);
 }
 // ---- summary -----------------------------------------------------------
 RETRY_SUITE.then(() => {

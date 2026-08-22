@@ -58,6 +58,16 @@ No data collection. No external servers. No tracking. Everything local.
 
 ## Changelog
 
+- **1.5.2** — Reopening the popup no longer costs you work. Chrome destroys an
+  extension popup the moment it loses focus (dismissing the download bubble is
+  enough) and no API can prevent that — so the filename you typed and the last
+  thing the popup told you are now remembered per conversation, and come back
+  when you open it again. Also: one download path for every format, which fixes
+  the Save-As dialog offering a blob UUID instead of your filename; the
+  `downloads` permission is no longer needed and has been removed. And uploads
+  that the platform does not serve (Claude documents arriving as `blob` with no
+  URL) are now named honestly in the export instead of being reported as a
+  failed download.
 - **1.5.1** — Images and attachments export properly, at any size. The media
   fetch is now one message per asset with live progress: the old bulk transfer
   put every image's data into a single browser message and a ~100-image

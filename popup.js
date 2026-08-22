@@ -10,10 +10,15 @@ chrome.storage.sync.get(
   }
 );
 
+// The conversation the current run belongs to, so a finished export can leave
+// a note for the next time the popup is opened on the same chat.
+let CURRENT = null;
+
 function setStatus(text, type = 'info') {
   const el = document.getElementById('status');
   el.textContent = text;
   el.className = type;
+  if (type === 'success' && CURRENT) rememberStatus(CURRENT, text);
 }
 
 function saveLabels() {
@@ -62,6 +67,38 @@ function buildBaseFilename(detected, userLabel, assistantLabel) {
 // Refresh the filename preview from the active tab + current label inputs. Runs
 // on popup open and whenever a label changes. Leaves the field empty when the
 // active tab isn't a supported conversation.
+// Chrome destroys a browser-action popup the moment it loses focus -- clicking
+// the download bubble away is enough -- and there is no setting or API that
+// prevents it. What we CAN do is make reopening cost nothing: the filename she
+// typed and the last thing the popup said are kept per conversation, so a
+// second export of the same chat picks up where she left it instead of
+// regenerating over her own words. (Asked for 22.08.2026: "cand il deschid iar
+// din Extensions sa-l folosesc, o ia de la zero".)
+function memoryKey(detected) {
+  return 'ui:' + detected.platform + ':' + detected.conversationId;
+}
+
+function rememberFilename(detected) {
+  if (!detected || !detected.conversationId) return;
+  const value = document.getElementById('exportFilename').value.trim();
+  chrome.storage.local.get({ [memoryKey(detected)]: {} }, (got) => {
+    const rec = got[memoryKey(detected)] || {};
+    rec.filename = value;
+    rec.at = Date.now();
+    chrome.storage.local.set({ [memoryKey(detected)]: rec });
+  });
+}
+
+function rememberStatus(detected, text) {
+  if (!detected || !detected.conversationId) return;
+  chrome.storage.local.get({ [memoryKey(detected)]: {} }, (got) => {
+    const rec = got[memoryKey(detected)] || {};
+    rec.status = text;
+    rec.at = Date.now();
+    chrome.storage.local.set({ [memoryKey(detected)]: rec });
+  });
+}
+
 async function updateFilenamePreview() {
   const field = document.getElementById('exportFilename');
   if (!field) return;
@@ -74,7 +111,16 @@ async function updateFilenamePreview() {
     }
     const userLabel = document.getElementById('userLabel').value.trim() || 'USER';
     const assistantLabel = document.getElementById('assistantLabel').value.trim() || 'ASSISTANT';
-    field.value = buildBaseFilename(detected, userLabel, assistantLabel);
+    const auto = buildBaseFilename(detected, userLabel, assistantLabel);
+    chrome.storage.local.get({ [memoryKey(detected)]: {} }, (got) => {
+      const rec = got[memoryKey(detected)] || {};
+      // Her name wins over the generated one; an empty field means "regenerate".
+      field.value = rec.filename || auto;
+      if (rec.status) {
+        const mins = Math.round((Date.now() - (rec.at || 0)) / 60000);
+        setStatus(rec.status + (mins >= 1 ? ' · ' + mins + ' min ago' : ' · just now'), 'info');
+      }
+    });
   } catch (err) {
     field.value = '';
   }
@@ -98,6 +144,8 @@ async function doExport(format) {
       setStatus(detected.name + ' — not yet supported', 'error');
       return;
     }
+
+    CURRENT = detected;
 
     setStatus(`Extracting from ${detected.name}...`, 'info');
 
@@ -612,5 +660,12 @@ document.getElementById('exportJson').addEventListener('click', () => doExport('
 document.getElementById('exportHtml').addEventListener('click', () => doExport('html'));
 
 // Keep the filename preview in sync with the labels as they're typed.
+document.getElementById('exportFilename').addEventListener('input', async () => {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const detected = detectPlatform(tab?.url);
+    if (detected) rememberFilename(detected);
+  } catch (err) { /* nothing to remember against */ }
+});
 document.getElementById('userLabel').addEventListener('input', updateFilenamePreview);
 document.getElementById('assistantLabel').addEventListener('input', updateFilenamePreview);
