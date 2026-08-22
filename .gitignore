@@ -13,7 +13,9 @@ desktop.ini
 # Working files / private submission artifacts (kept local, not committed)
 # Tracked screenshots live in screenshots/ — keep root copies out of git
 # so accidental `git add -A` later doesn't duplicate them.
-STORE_LISTING.md
+# STORE_LISTING.md moved to docs/store-submission.md and is TRACKED now:
+# it holds no secrets (the text is what goes on a public store page), and
+# ignored means it dies with this machine. 2026-08-23.
 icon-options/
 Demo_image_interface.png
 Demo_image_save_file.png
