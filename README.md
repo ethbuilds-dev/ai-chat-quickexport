@@ -10,12 +10,42 @@ QuickExport uses each platform's internal API to fetch your **complete** convers
 
 ## Supported platforms
 
-| Platform | Method | Status |
-|----------|--------|--------|
-| ChatGPT | Internal API | ✅ |
-| Claude | Internal API | ✅ |
-| Grok | Internal API | ✅ |
-| Gemini | DOM extraction | ✅ |
+| Platform | Method | Text | Images | Notes |
+|----------|--------|------|--------|-------|
+| ChatGPT | Internal API | ✅ full | ✅ | attachments too |
+| Claude | Internal API | ✅ full | ✅ | non-image uploads are listed, not downloadable |
+| Grok | Internal API | ✅ full | ⚠️ mostly | your uploads + generated images (with prompts); search images by link |
+| Gemini | DOM extraction | ⚠️ best effort | ❌ | text only; scroll to the top first |
+
+## Coverage and limits
+
+Read this before you trust an archive to it. These are measured, not assumed.
+
+**Gemini is best effort.** Google exposes no clean conversation API, so Gemini is
+read from the rendered page. Consequences, all real: **text only — no image
+export**; a long conversation must be **scrolled to the top first**, because turns
+that were never rendered are not in the page to read; and a front-end redesign at
+Google can break the extraction without warning. Gemini is included because a text
+transcript beats no transcript — not because it is on par with the other three.
+
+**Grok media may be incomplete.** Grok's conversation format is undocumented and
+has changed more than once. Every shape this version handles was measured against
+live conversations — files you uploaded, images Grok generated for you, and
+web-search image cards. A shape nobody has seen yet can still come out as text
+without its picture. When the extension cannot fetch something, it says so in the
+export instead of dropping it silently.
+
+**Search-result images are exported as links, on purpose.** When Grok shows you
+pictures it found on the web, they are other people's images on arbitrary sites.
+Packing them would require permission to read every site you visit; this extension
+will not ask for that. The export keeps the title, the source site, a link to the
+image and a link to the page — an archive that says *"here was a picture from
+example.com, here is where"* is honest; raw markup is not.
+
+**Claude non-image uploads cannot be retrieved.** Documents uploaded into Claude
+arrive as `blob` records with no served URL — eight candidate endpoints were tried
+against a live account and all returned 404. They are named in the export as
+present-but-unavailable rather than reported as a download failure.
 
 ## Export formats
 
@@ -31,7 +61,10 @@ byte-identical to earlier versions.
 ## Install
 
 ### Chrome Web Store
-*(Under review)*
+[AI Chat QuickExport](https://chromewebstore.google.com/detail/oocipcgmlmgnkkcodlnnpdddgmodhoai)
+— the published version there is **1.4.0** (8 June 2026). **1.5.8 is packaged and
+queued for upload**; this line is updated the day it is actually submitted, not
+before. Until it clears review, install manually below to get the image export.
 
 ### Manual install
 1. Download or clone this repo
@@ -55,6 +88,33 @@ Default: `USER` / `ASSISTANT`. Change to anything in the popup. Saved automatica
 ## Privacy
 
 No data collection. No external servers. No tracking. Everything local.
+
+**Permissions, and why each one exists:**
+
+- `activeTab` — read the URL and title of the tab you clicked from, to know which
+  platform and which conversation, and to show you the target before you commit.
+- `scripting` — run the fetch inside the conversation page for ChatGPT (its
+  servers reject the same request made from the extension's background context)
+  and for Gemini (no API; the transcript exists only as DOM), plus ChatGPT's
+  signed image URLs, which are only honoured from the page. Nothing is injected
+  into pages you did not ask to export.
+- `storage` — your two speaker labels (sync), and per conversation the filename
+  you last typed plus the last success line (local), so reopening the popup does
+  not lose your place. Capped at 200 conversations, expiring after 90 days. **No
+  conversation content is stored.**
+- Host permissions for the four platforms — to read your conversation using the
+  session you are already logged into.
+- `*.oaiusercontent.com` and `assets.grok.com` — the hosts that serve ChatGPT's
+  and Grok's images. Needed to download the pictures into the export. Nothing is
+  ever uploaded to them.
+
+Authentication tokens from your existing session are held in memory for the
+duration of one export and are never written to disk or sent anywhere but back to
+the platform they came from.
+
+**Note when updating from 1.4.0:** the two asset hosts are new permissions, and
+Chrome disables an extension whose update requests new hosts until you approve
+them. You will see "needs permission" once. That is the update, not a fault.
 
 ## Changelog
 
