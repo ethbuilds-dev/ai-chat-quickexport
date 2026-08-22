@@ -53,6 +53,46 @@
       border-color: rgba(130, 130, 255, 0.5);
     }
 
+    /* What this popup is pointed at. Until now the only clue was the filename
+       field, so exporting the wrong tab was found out AFTER the click. */
+    #target {
+      font-size: 12px;
+      line-height: 1.35;
+      color: #b9b9d6;
+      background: #0f0f1e;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 6px;
+      padding: 8px 10px;
+      margin-bottom: 14px;
+      overflow-wrap: anywhere;
+    }
+    #target .platform {
+      color: #9a9aff;
+      font-weight: 600;
+    }
+    #target.none {
+      color: #8888aa;
+    }
+
+    /* A long media export is two silent minutes with one line of text
+       changing. A bar is the difference between "working" and "frozen". */
+    #progress {
+      height: 4px;
+      border-radius: 2px;
+      background: rgba(255, 255, 255, 0.08);
+      margin-top: 10px;
+      overflow: hidden;
+      display: none;
+    }
+    #progress.on { display: block; }
+    #progress > i {
+      display: block;
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #6a6aff, #9a9aff);
+      transition: width 0.15s linear;
+    }
+
     .divider {
       height: 1px;
       background: rgba(255, 255, 255, 0.08);
@@ -168,6 +208,8 @@
 <body>
   <h2>AI Chat QuickExport</h2>
 
+  <div id="target" class="none">checking this tab&hellip;</div>
+
   <div class="field">
     <label>User label</label>
     <input type="text" id="userLabel" placeholder="USER">
@@ -203,6 +245,7 @@
     </div>
   </div>
 
+  <div id="progress"><i></i></div>
   <div id="status"></div>
   <div id="wordcount"></div>
 

@@ -18,6 +18,7 @@ function setStatus(text, type = 'info') {
   const el = document.getElementById('status');
   el.textContent = text;
   el.className = type;
+  if (type !== 'info') setProgress(null);   // the run is over, either way
   if (type === 'success' && CURRENT) rememberStatus(CURRENT, text);
 }
 
@@ -74,6 +75,38 @@ function buildBaseFilename(detected, userLabel, assistantLabel) {
 // second export of the same chat picks up where she left it instead of
 // regenerating over her own words. (Asked for 22.08.2026: "cand il deschid iar
 // din Extensions sa-l folosesc, o ia de la zero".)
+// The popup now says what it is pointed at, before you click. The tab title is
+// the conversation's own name; the site suffix is trimmed off it.
+function setTarget(detected, tabTitle) {
+  const el = document.getElementById('target');
+  if (!el) return;
+  if (!detected || !detected.conversationId) {
+    el.className = 'none';
+    el.textContent = 'Open a ChatGPT, Claude, Gemini or Grok conversation in this tab.';
+    return;
+  }
+  const title = String(tabTitle || '')
+    .replace(/\s*[-|—]\s*(ChatGPT|Claude|Gemini|Grok).*$/i, '')
+    .trim();
+  el.className = '';
+  el.innerHTML = '';
+  const p = document.createElement('span');
+  p.className = 'platform';
+  p.textContent = detected.name;
+  el.appendChild(p);
+  el.appendChild(document.createTextNode(title ? '  ·  ' + title : ''));
+}
+
+// 0..1, or null to hide it.
+function setProgress(fraction) {
+  const bar = document.getElementById('progress');
+  if (!bar) return;
+  if (fraction == null) { bar.className = ''; bar.firstElementChild.style.width = '0%'; return; }
+  bar.className = 'on';
+  const pct = Math.max(0, Math.min(1, fraction)) * 100;
+  bar.firstElementChild.style.width = pct.toFixed(1) + '%';
+}
+
 function memoryKey(detected) {
   return 'ui:' + detected.platform + ':' + detected.conversationId;
 }
@@ -125,6 +158,7 @@ async function updateFilenamePreview() {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     const detected = detectPlatform(tab?.url);
+    setTarget(detected, tab?.title);
     if (!detected || !detected.conversationId) {
       field.value = '';
       return;
@@ -305,6 +339,7 @@ async function doMediaExport(detected, tab, media, messages, labels, format, tit
   for (let i = 0; i < media.length; i++) {
     const ref = media[i];
     setStatus(`Downloading attachment ${i + 1}/${media.length}...`, 'info');
+    setProgress(i / media.length);
     try {
       const resp = await chrome.runtime.sendMessage({
         type: 'FETCH_MEDIA_ONE',
@@ -322,6 +357,8 @@ async function doMediaExport(detected, tab, media, messages, labels, format, tit
       assets.push({ id: ref.id, name: ref.name || null, ok: false, error: err.message });
     }
   }
+
+  setProgress(1);
 
   // Decode to bytes (needed for sniffing and for the zip entries).
   const withBytes = assets.map(a => {

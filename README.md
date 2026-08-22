@@ -58,6 +58,11 @@ No data collection. No external servers. No tracking. Everything local.
 
 ## Changelog
 
+- **1.5.5** — The popup now tells you what it is pointed at before you click:
+  the platform and the conversation name, in a line under the title. Exporting
+  the wrong tab used to be something you found out afterwards. And a media
+  export shows a progress bar — a hundred images is two silent minutes, which
+  is the difference between "working" and "frozen".
 - **1.5.4** — Hardening from an adversarial pass (53 attacks, `node
   tests/adversarial.js`). Asset names now have bidirectional-override and
   control characters stripped: a file called "photo<RLO>gnp.exe" displays as
