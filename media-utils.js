@@ -203,9 +203,20 @@
     const dot = name.lastIndexOf('.');
     const ext = dot > 0 ? name.slice(dot + 1).toLowerCase() : '';
     const imageExts = ['png', 'jpg', 'jpeg', 'gif', 'webp'];
-    if (ext && imageExts.indexOf(ext) !== -1) return name;   // trust existing image ext
+    const base = dot > 0 ? name.slice(0, dot) : name;
+    if (ext && imageExts.indexOf(ext) !== -1) {
+      // The BYTES are the truth, not the name the human uploaded. Measured on
+      // claude.ai 2026-08-22: its /files/{uuid}/preview endpoint re-encodes
+      // everything to WebP and keeps the original filename, so "Evermore.png"
+      // arrives as image/webp (1344x896) and "photo.JPG" likewise. A .png that
+      // holds WebP bytes opens in some viewers and silently fails in others.
+      // So the extension follows the signature; the base name — the part a
+      // human recognises months later — is kept exactly.
+      const same = (ext === sniffedExt) || (ext === 'jpeg' && sniffedExt === 'jpg');
+      return same ? name : base + '.' + sniffedExt;
+    }
     if (!ext || ext === 'bin' || ext === 'dat') {
-      return (dot > 0 ? name.slice(0, dot) : name) + '.' + sniffedExt;
+      return base + '.' + sniffedExt;
     }
     return name; // has some other ext (e.g. .pdf) -- leave it
   }

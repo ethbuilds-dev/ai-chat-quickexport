@@ -14,9 +14,10 @@ const ZipWriter = require(path.join(__dirname, '..', 'zipwriter.js'));
 // background.js exports the pure tree-walker under Node (importScripts is
 // guarded; MediaUtils is require()'d there) so the REAL walker — not a copy —
 // is exercised against fixtures.
-const { walkChatGPTTree } = require(path.join(__dirname, '..', 'background.js'));
+const { walkChatGPTTree, fetchRetrying } = require(path.join(__dirname, '..', 'background.js'));
 
 let passed = 0, failed = 0;
+let RETRY_SUITE = Promise.resolve();
 function check(name, cond, detail) {
   if (cond) { passed++; console.log('  ok  ' + name); }
   else { failed++; console.error('FAIL  ' + name + (detail ? ' -- got: ' + detail : '')); }
@@ -127,7 +128,7 @@ console.log('\n[names + sniff]');
   check('sniff garbage -> null', MediaUtils.sniffImageExt(new Uint8Array([1, 2, 3, 4])) === null);
 
   check('ensureExtension adds sniffed', MediaUtils.ensureExtension('photo', 'png') === 'photo.png');
-  check('ensureExtension keeps existing image ext', MediaUtils.ensureExtension('photo.jpg', 'png') === 'photo.jpg');
+  check('ensureExtension: sniffed bytes beat a wrong image ext', MediaUtils.ensureExtension('photo.jpg', 'png') === 'photo.png');
   check('ensureExtension keeps .pdf', MediaUtils.ensureExtension('doc.pdf', 'png') === 'doc.pdf');
   check('extFromMediaType image/jpeg -> jpg', MediaUtils.extFromMediaType('image/jpeg') === 'jpg');
   check('extFromMediaType text/plain -> null', MediaUtils.extFromMediaType('text/plain') === null);
@@ -442,7 +443,93 @@ console.log('\n[structural: chunked media transfer]');
   check('background per-one returns single asset key', bgSrc.includes('asset: assets[0]'));
 }
 
+// ---- extension follows the BYTES, not the uploaded name ----------------
+// Measured live on claude.ai 2026-08-22: /files/{uuid}/preview re-encodes
+// every image to WebP and keeps the original filename, so "Evermore.png"
+// arrives as image/webp (1344x896). A .png holding WebP bytes opens in some
+// viewers and silently fails in others -- the signature wins, the base name
+// (what a human recognises months later) is kept.
+console.log('\n[naming: bytes beat the filename]');
+{
+  const e = MediaUtils.ensureExtension;
+  check('webp bytes under a .png name -> .webp', e('Evermore.png', 'webp') === 'Evermore.webp', e('Evermore.png', 'webp'));
+  check('webp bytes under a .JPG name -> .webp', e('20260405_144628107.JPG', 'webp') === '20260405_144628107.webp', e('20260405_144628107.JPG', 'webp'));
+  check('base name is preserved exactly', e('my holiday.photo.png', 'webp') === 'my holiday.photo.webp', e('my holiday.photo.png', 'webp'));
+  check('matching extension is left alone', e('shot.png', 'png') === 'shot.png', e('shot.png', 'png'));
+  check('.jpeg vs jpg counts as matching', e('scan.jpeg', 'jpg') === 'scan.jpeg', e('scan.jpeg', 'jpg'));
+  check('no extension -> sniffed one added', e('screenshot', 'png') === 'screenshot.png', e('screenshot', 'png'));
+  check('.bin -> sniffed one', e('blob.bin', 'jpg') === 'blob.jpg', e('blob.bin', 'jpg'));
+  check('non-image extension untouched', e('report.pdf', 'png') === 'report.pdf', e('report.pdf', 'png'));
+  check('no sniff -> name unchanged', e('mystery.dat', null) === 'mystery.dat', e('mystery.dat', null));
+}
+
+// ---- transient failures are retried, real answers are not --------------
+// Measured live on claude.ai 2026-08-22: the SAME preview URL answered 503
+// once and 200 on three immediate retries. Without a retry, one hiccup turns
+// one image into a permanent "-- not exported" note; on a 95-image
+// conversation that hiccup is nearly certain.
+console.log('\n[media fetch: retry on transient failures]');
+{
+  const realFetch = global.fetch;
+  function stub(seq) {
+    let i = 0;
+    const calls = [];
+    global.fetch = async (url) => {
+      calls.push(url);
+      const step = seq[Math.min(i++, seq.length - 1)];
+      if (step instanceof Error) throw step;
+      return { ok: step < 400, status: step, headers: { get: () => 'image/webp' } };
+    };
+    return calls;
+  }
+  RETRY_SUITE = (async () => {
+    let calls = stub([503, 200]);
+    let r = await fetchRetrying('u1', {});
+    check('503 then 200 -> resolves ok', r.ok === true && r.status === 200, String(r.status));
+    check('503 then 200 -> exactly two attempts', calls.length === 2, String(calls.length));
+
+    calls = stub([404]);
+    r = await fetchRetrying('u2', {});
+    check('404 is an answer, not a stumble (no retry)', calls.length === 1 && r.status === 404, calls.length + '/' + r.status);
+
+    calls = stub([403]);
+    r = await fetchRetrying('u3', {});
+    check('403 is not retried', calls.length === 1, String(calls.length));
+
+    calls = stub([429, 429, 200]);
+    r = await fetchRetrying('u4', {});
+    check('429 is retried', r.status === 200 && calls.length === 3, calls.length + '/' + r.status);
+
+    calls = stub([500]);
+    r = await fetchRetrying('u5', {});
+    check('gives up after 3 attempts, returns the last response', calls.length === 3 && r.status === 500, String(calls.length));
+
+    calls = stub([new Error('network down'), 200]);
+    r = await fetchRetrying('u6', {});
+    check('network error is retried', r.status === 200 && calls.length === 2, String(calls.length));
+
+    calls = stub([new Error('network down')]);
+    let threw = false;
+    try { await fetchRetrying('u7', {}); } catch (e) { threw = true; }
+    check('persistent network error still throws', threw && calls.length === 3, String(calls.length));
+
+    global.fetch = realFetch;
+  })();
+}
+
+// ---- structural: every asset fetch goes through the retry --------------
+console.log('\n[structural: retry wired into every asset path]');
+{
+  const bgSrc = fs.readFileSync(path.join(__dirname, '..', 'background.js'), 'utf8');
+  check('fetchRetrying exists', /async function fetchRetrying\(/.test(bgSrc));
+  check('claude asset fetch retries', /fetchClaudeAsset[\s\S]{0,400}fetchRetrying\(url/.test(bgSrc));
+  check('grok asset fetch retries', /fetchGrokAsset[\s\S]{0,400}fetchRetrying\(url/.test(bgSrc));
+  check('chatgpt SW fallback retries', bgSrc.includes('fetchRetrying(payload.downloadUrl)'));
+}
+
 // ---- summary -----------------------------------------------------------
-console.log('\n' + passed + ' passed, ' + failed + ' failed');
-process.exit(failed === 0 ? 0 : 1);
+RETRY_SUITE.then(() => {
+  console.log('\n' + passed + ' passed, ' + failed + ' failed');
+  process.exit(failed === 0 ? 0 : 1);
+});
 

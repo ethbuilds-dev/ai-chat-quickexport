@@ -554,6 +554,35 @@ function utf8ToBase64(str) {
   return bufToBase64(bytes.buffer);
 }
 
+// Transient failures are not failures — they only look like one to a caller
+// that gives up after the first try. Measured on claude.ai 2026-08-22: the
+// SAME preview URL answered 503 once and 200 on all three immediate retries.
+// Without this, one hiccup turns one image into a permanent
+// "-- not exported" note in an export the user will keep for years, and a
+// 95-image conversation makes that hiccup nearly certain.
+// Retries only what is retryable: network errors, 5xx, 408, 429. A 401/403/404
+// is an answer, not a stumble — it returns immediately.
+async function fetchRetrying(url, init, attempts) {
+  const max = attempts || 3;
+  let last = null;
+  for (let i = 0; i < max; i++) {
+    try {
+      const resp = await fetch(url, init);
+      if (resp.ok) return resp;
+      const retryable = resp.status >= 500 || resp.status === 408 || resp.status === 429;
+      if (!retryable || i === max - 1) return resp;
+      last = 'HTTP ' + resp.status;
+    } catch (err) {
+      if (i === max - 1) throw err;
+      last = err && err.message ? err.message : String(err);
+    }
+    const wait = 400 * Math.pow(3, i); // 400ms, 1200ms
+    console.warn('[Exporter] media: retry ' + (i + 2) + '/' + max + ' after ' + last + ' — ' + url);
+    await new Promise(r => setTimeout(r, wait));
+  }
+  throw new Error('unreachable');
+}
+
 async function fetchMediaAssets(media, platform, tabId) {
   const assets = [];
   // Sequential on purpose: exports are seconds-scale, and this avoids
@@ -588,7 +617,7 @@ async function fetchMediaAssets(media, platform, tabId) {
 // auth; claude.ai runs no bot protection on its API).
 async function fetchClaudeAsset(ref) {
   const url = ref.url.startsWith('/') ? 'https://claude.ai' + ref.url : ref.url;
-  const resp = await fetch(url, { credentials: 'include' });
+  const resp = await fetchRetrying(url, { credentials: 'include' });
   if (!resp.ok) {
     return { id: ref.id, name: ref.name || null, ok: false, error: 'HTTP ' + resp.status };
   }
@@ -614,7 +643,7 @@ async function fetchGrokAsset(ref) {
   const url = (typeof ref.url === 'string' && ref.url.startsWith('/'))
     ? 'https://grok.com' + ref.url
     : ref.url;
-  const resp = await fetch(url, { credentials: 'include' });
+  const resp = await fetchRetrying(url, { credentials: 'include' });
   if (!resp.ok) {
     return { id: ref.id, name: ref.name || null, ok: false, error: 'HTTP ' + resp.status };
   }
@@ -715,7 +744,7 @@ async function fetchChatGPTAsset(ref, tabId) {
     // Service-worker fallback: host permission for *.oaiusercontent.com makes
     // this CORS-exempt; the signature in the URL carries the authorization.
     try {
-      const resp = await fetch(payload.downloadUrl);
+      const resp = await fetchRetrying(payload.downloadUrl);
       if (!resp.ok) {
         return { id: ref.id, name: ref.name || null, ok: false, error: 'asset HTTP ' + resp.status };
       }
@@ -735,5 +764,5 @@ async function fetchChatGPTAsset(ref, tabId) {
 // Node-only export so the pure tree-walker can be exercised by tests/ against
 // real fixtures. No effect in the service worker (module is undefined there).
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { walkChatGPTTree: walkChatGPTTree };
+  module.exports = { walkChatGPTTree: walkChatGPTTree, fetchRetrying: fetchRetrying };
 }
