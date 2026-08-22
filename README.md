@@ -58,6 +58,11 @@ No data collection. No external servers. No tracking. Everything local.
 
 ## Changelog
 
+- **1.5.3** — Your filename reaches the disk exactly as you typed it. Chrome
+  substitutes a download extension from the operating system MIME registry, so a
+  .json export could arrive as .customization and a .html one as .htm depending
+  on what an installer once wrote there. Downloads now carry a neutral content
+  type, which is mapped nowhere, so nothing gets substituted.
 - **1.5.2** — Reopening the popup no longer costs you work. Chrome destroys an
   extension popup the moment it loses focus (dismissing the download bubble is
   enough) and no API can prevent that — so the filename you typed and the last

@@ -586,6 +586,17 @@ console.log('\n[structural: popup memory across reopen]');
   check('a finished export leaves the note', /type === 'success' && CURRENT/.test(src));
   check('uses storage.local, not sync (per-machine, no quota games)', src.indexOf('chrome.storage.local') !== -1);
 }
+// ---- the filename survives the machine's registry ----------------------
+// Chrome substitutes a download's extension from the MIME->extension registry.
+// On the box this was found on: application/json -> .customization (HKCU) and
+// text/html -> .htm (HKLM). octet-stream has no mapping, so the typed name
+// reaches disk unchanged.
+console.log('\n[structural: download mime]');
+{
+  const src = fs.readFileSync(path.join(__dirname, '..', 'popup.js'), 'utf8');
+  check('downloads go out as octet-stream', /DOWNLOAD_MIME = 'application\/octet-stream'/.test(src));
+  check('the anchor re-wraps the blob with it', /createObjectURL\(new Blob\(\[blob\], \{ type: DOWNLOAD_MIME \}\)\)/.test(src));
+}
 // ---- summary -----------------------------------------------------------
 RETRY_SUITE.then(() => {
   console.log('\n' + passed + ' passed, ' + failed + ' failed');

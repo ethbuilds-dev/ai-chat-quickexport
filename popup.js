@@ -239,8 +239,19 @@ function base64ToBytes(b64) {
 // the plain-export code below stays byte-identical to v1.4.3).
 // Anchor-based download: respects the `download` filename synchronously,
 // avoiding the chrome.downloads blob-URL-UUID fallback seen on larger zips.
+// Chrome renames a download to match the machine's MIME->extension registry,
+// which is how a .json export landed as ".customization" and a .html one as
+// ".htm" on Zaina's box (22.08.2026). Measured, not guessed:
+//   HKCU\SOFTWARE\Classes\MIME\Database\Content Typepplication/json -> .customization
+//   HKLM\SOFTWARE\Classes\MIME\Database\Content Type	ext/html        -> .htm
+// Some installer wrote that HKCU entry years ago; it is not ours to fix, and a
+// user should not have to repair their registry to get a file named correctly.
+// application/octet-stream has no mapping anywhere, so Chrome has nothing to
+// substitute and honours the `download` name character for character.
+const DOWNLOAD_MIME = 'application/octet-stream';
+
 function downloadBlobViaAnchor(blob, filename) {
-  const url = URL.createObjectURL(blob);
+  const url = URL.createObjectURL(new Blob([blob], { type: DOWNLOAD_MIME }));
   const a = document.createElement('a');
   a.href = url;
   a.download = filename;
