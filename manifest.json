@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AI Chat QuickExport",
-  "version": "1.5.6",
+  "version": "1.5.7",
   "description": "Export full ChatGPT, Claude, Gemini & Grok conversations - text and images - as Markdown, JSON or one self-contained HTML file.",
   "permissions": [
     "storage",
@@ -15,7 +15,8 @@
     "https://gemini.google.com/*",
     "https://grok.com/*",
     "https://x.com/*",
-    "https://*.oaiusercontent.com/*"
+    "https://*.oaiusercontent.com/*",
+    "https://assets.grok.com/*"
   ],
   "background": {
     "service_worker": "background.js"

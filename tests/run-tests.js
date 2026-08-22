@@ -630,6 +630,60 @@ console.log('\n[grok: <grok:render> image cards]');
   check('garbage response never throws',
     MediaUtils.rewriteGrokRenderTags(tag, null).indexOf('<grok:render') === -1);
 }
+// ---- grok generated images: downloaded, with their prompt --------------
+// Measured 2026-08-22 on a live "generate me some images" conversation: the
+// tag is EMPTY (card_id only), the card carries the prompt and a RELATIVE
+// imageUrl under https://assets.grok.com/. Unlike searched images these are
+// the user's own, on Grok's own host, so they become real files.
+console.log('\n[grok: generated_image_card]');
+{
+  const gen = {
+    id: 'Eg9h2', type: 'render_generated_image', cardType: 'generated_image_card',
+    prompt: 'A lone red fox standing on a mossy rock',
+    image_chunk: { imageUrl: 'users/u1/generated/g1/image.jpg', imageTitle: 'Generated Image',
+                   mimeType: 'image/jpeg', imageIndex: 0 }
+  };
+  const resp = { cardAttachmentsJson: [JSON.stringify(gen)] };
+  const refs = MediaUtils.collectGrokCardMedia(resp);
+
+  check('generated card yields one media ref', refs.length === 1, refs.length);
+  check('relative imageUrl resolved against the asset host',
+    refs[0] && refs[0].url === 'https://assets.grok.com/users/u1/generated/g1/image.jpg', refs[0] && refs[0].url);
+  check('the prompt becomes the alt text',
+    refs[0] && refs[0].alt.indexOf('red fox') !== -1, refs[0] && refs[0].alt);
+  check('mime decides the extension', refs[0] && /\.jpg$/.test(refs[0].name), refs[0] && refs[0].name);
+  check('the card id is carried for placement', refs[0] && refs[0].cardId === 'Eg9h2');
+
+  const tag = '<grok:render card_id="Eg9h2" card_type="generated_image_card" type="render_generated_image"></grok:render>';
+  const placed = MediaUtils.rewriteGrokRenderTags('x ' + tag, resp, { Eg9h2: '![fox](asset:m0)' });
+  check('an empty tag is matched by card_id alone', placed.indexOf('![fox](asset:m0)') !== -1, placed);
+  check('no raw markup survives', placed.indexOf('<grok:render') === -1, placed);
+
+  const undownloaded = MediaUtils.rewriteGrokRenderTags('x ' + tag, resp);
+  check('a card we did not download keeps prompt AND address',
+    undownloaded.indexOf('red fox') !== -1 && undownloaded.indexOf('assets.grok.com') !== -1, undownloaded);
+  check('and never claims the data was missing',
+    undownloaded.indexOf('no card data') === -1, undownloaded);
+
+  const searchedOnly = { cardAttachmentsJson: [JSON.stringify({
+    id: 's1', cardType: 'image_card', image: { image_id: 'i1', title: 'T', link: 'https://e.com/p', original: 'https://e.com/i.jpg' } })] };
+  check('searched cards are NOT collected as downloads',
+    MediaUtils.collectGrokCardMedia(searchedOnly).length === 0);
+  check('garbage never throws', MediaUtils.collectGrokCardMedia(null).length === 0 &&
+    MediaUtils.collectGrokCardMedia({ cardAttachmentsJson: ['{bad', 7, null] }).length === 0);
+}
+
+// ---- structural: the asset host is actually permitted -------------------
+console.log('\n[structural: grok asset host]');
+{
+  const mf = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'manifest.json'), 'utf8'));
+  check('assets.grok.com is in host_permissions',
+    mf.host_permissions.indexOf('https://assets.grok.com/*') !== -1, mf.host_permissions.join(' '));
+  const src = fs.readFileSync(path.join(__dirname, '..', 'background.js'), 'utf8');
+  check('fetchGrok collects card media before rewriting',
+    src.indexOf('collectGrokCardMedia') < src.indexOf('rewriteGrokRenderTags(text, r, cardPlaceholders)'));
+}
+
 // ---- summary -----------------------------------------------------------
 RETRY_SUITE.then(() => {
   console.log('\n' + passed + ' passed, ' + failed + ' failed');

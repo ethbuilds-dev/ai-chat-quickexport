@@ -178,8 +178,12 @@
   // is keep the reference intact and readable: what was shown, where it came
   // from, and where to click. An archive that says "here was a photo from
   // katedaviesdesigns.com, here is the link" is honest; raw markup is not.
-  const GROK_RENDER_RE = /<grok:render[^>]*>([\s\S]*?)<\/grok:render>/g;
+  const GROK_RENDER_RE = /<grok:render[^>]*?card_id="([^"]*)"[^>]*>([\s\S]*?)<\/grok:render>/g;
 
+  // Every card, keyed by BOTH its own id and (for searched images) the
+  // image_id the tag carries. Generated-image tags are EMPTY -- they identify
+  // their card only through card_id -- so an index keyed on image_id alone
+  // finds nothing for them. (Measured 2026-08-22 on both kinds.)
   function grokCardIndex(response) {
     const byId = {};
     const cards = response && response.cardAttachmentsJson;
@@ -188,12 +192,60 @@
       let p = c;
       if (typeof p === 'string') { try { p = JSON.parse(p); } catch (e) { continue; } }
       if (!p || typeof p !== 'object') continue;
+      if (p.id) byId[String(p.id)] = p;
       const img = p.image;
-      if (!img || typeof img !== 'object') continue;
-      const key = img.image_id || img.imageId || p.id;
-      if (key) byId[String(key)] = img;
+      if (img && typeof img === 'object') {
+        const key = img.image_id || img.imageId;
+        if (key) byId[String(key)] = p;
+      }
     }
     return byId;
+  }
+
+  // Grok's own generated images. Shape measured 2026-08-22:
+  //   { id, type:'render_generated_image', cardType:'generated_image_card',
+  //     prompt, image_chunk:{ imageUrl:'users/<uid>/generated/<gid>/image.jpg',
+  //                           imageTitle, imageModel, mimeType, resolution } }
+  // imageUrl is RELATIVE to https://assets.grok.com/. Unlike the searched
+  // images, these ARE the user's -- she asked for them, Grok made them, they
+  // sit on Grok's own asset host -- so they get downloaded like any other
+  // attachment. The prompt rides along as the alt text, because a generated
+  // image without its prompt is half a record.
+  const GROK_ASSETS = 'https://assets.grok.com/';
+
+  function grokGeneratedCardRef(card) {
+    if (!card || typeof card !== 'object') return null;
+    if (String(card.cardType || '') !== 'generated_image_card') return null;
+    const chunk = card.image_chunk || card.imageChunk;
+    if (!chunk || typeof chunk !== 'object') return null;
+    const rel = chunk.imageUrl || chunk.image_url;
+    if (typeof rel !== 'string' || !rel) return null;
+    const url = /^https?:\/\//i.test(rel) ? rel : GROK_ASSETS + rel.replace(/^\/+/, '');
+    const prompt = String(card.prompt || '').replace(/[\[\]\n\r]/g, ' ').trim();
+    const idx = (typeof chunk.imageIndex === 'number') ? chunk.imageIndex + 1 : null;
+    const ext = /jpe?g/i.test(String(chunk.mimeType || '')) ? 'jpg' : 'png';
+    return {
+      kind: 'grok-url',
+      url: url,
+      name: 'grok-generated' + (idx ? '-' + idx : '') + '.' + ext,
+      alt: prompt ? prompt.slice(0, 120) : (chunk.imageTitle || 'generated image'),
+      isImage: true,
+      generated: true,
+      cardId: card.id ? String(card.id) : null
+    };
+  }
+
+  function collectGrokCardMedia(response) {
+    const refs = [];
+    const byId = grokCardIndex(response);
+    const seen = {};
+    for (const key of Object.keys(byId)) {
+      const card = byId[key];
+      if (!card || !card.id || seen[card.id]) continue;
+      const ref = grokGeneratedCardRef(card);
+      if (ref) { seen[card.id] = true; refs.push(ref); }
+    }
+    return refs;
   }
 
   function hostOf(url) {
@@ -205,13 +257,28 @@
    * Replace <grok:render> image-card tags with a readable reference line.
    * Unknown cards degrade to a plain note; nothing is ever left as raw markup.
    */
-  function rewriteGrokRenderTags(text, response) {
+  function rewriteGrokRenderTags(text, response, idToPlaceholder) {
     if (typeof text !== 'string' || text.indexOf('<grok:render') === -1) return text;
     const byId = grokCardIndex(response);
-    return text.replace(GROK_RENDER_RE, function (whole, inner) {
+    return text.replace(GROK_RENDER_RE, function (whole, cardId, inner) {
       const idm = /<argument name="image_id">([^<]*)<\/argument>/.exec(inner || '');
-      const id = idm ? idm[1].trim() : '';
-      const img = id && byId[id];
+      const id = (idm ? idm[1].trim() : '') || String(cardId || '').trim();
+      // A generated image was downloaded like any attachment: drop its
+      // placeholder in, exactly where the card sat.
+      const ph = idToPlaceholder && (idToPlaceholder[id] || idToPlaceholder[String(cardId || '')]);
+      if (ph) return ph;
+      const card = id && byId[id];
+      if (card && String(card.cardType || '') === 'generated_image_card') {
+        // The card data is right here; only the download did not happen. Say
+        // that, and keep the prompt and the address -- "no card data" would be
+        // a lie, and a generated image without its prompt is half a record.
+        const ref = grokGeneratedCardRef(card);
+        if (ref) {
+          const label = ref.alt || 'generated image';
+          return '[' + label + '](' + ref.url + ')';
+        }
+      }
+      const img = card && card.image;
       if (!img) return '*[image card' + (id ? ' ' + id : '') + ' -- no card data in the export]*';
       const url = img.original || img.thumbnail || img.link || '';
       const title = String(img.title || '').replace(/[\[\]\n\r]/g, ' ').trim() || 'image';
@@ -616,6 +683,8 @@
     chatgptAttachmentNames: chatgptAttachmentNames,
     collectGrokResponseMedia: collectGrokResponseMedia,
     rewriteGrokRenderTags: rewriteGrokRenderTags,
+    collectGrokCardMedia: collectGrokCardMedia,
+    grokGeneratedCardRef: grokGeneratedCardRef,
     grokCardIndex: grokCardIndex,
     assignAssetNames: assignAssetNames
   };

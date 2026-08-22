@@ -403,8 +403,24 @@ async function fetchGrok(conversationId, token) {
     // had been shown at all. Turn them into a reference before anything else
     // touches the text. (Never fetched: they are web-search results on other
     // people's sites -- see MediaUtils.rewriteGrokRenderTags.)
+    // Generated images ARE downloadable (Grok's own asset host) and become
+    // real files in assets/; searched images are only referenced. Both start
+    // life as <grok:render> tags in the text, so the placeholders for the
+    // downloaded ones are built first and handed to the rewriter.
+    let cardRefs = [];
     try {
-      text = MediaUtils.rewriteGrokRenderTags(text, r);
+      cardRefs = MediaUtils.collectGrokCardMedia(r) || [];
+    } catch (e) {
+      onSkip('grok card media threw', { error: e && e.message });
+    }
+    const cardPlaceholders = {};
+    for (const ref of cardRefs) {
+      const id = 'm' + media.length;
+      media.push(Object.assign({ id }, ref));
+      if (ref.cardId) cardPlaceholders[ref.cardId] = MediaUtils.makePlaceholder(id, ref.alt, true);
+    }
+    try {
+      text = MediaUtils.rewriteGrokRenderTags(text, r, cardPlaceholders);
     } catch (e) {
       onSkip('grok render rewrite threw', { error: e && e.message });
     }

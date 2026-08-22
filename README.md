@@ -58,6 +58,15 @@ No data collection. No external servers. No tracking. Everything local.
 
 ## Changelog
 
+- **1.5.7** — Grok images that Grok made for you are now exported as files.
+  A generated-image card writes an EMPTY tag into the message (it identifies
+  itself only by card id) while the picture, its prompt and its address live
+  in a separate field; the address is relative to Grok's asset host. Those are
+  yours, so they are downloaded into assets/ like any attachment, and the
+  prompt travels with them as the alt text - a generated image without its
+  prompt is half a record. Adds the https://assets.grok.com/* host permission,
+  which is what makes fetching them possible. Web-search images stay
+  references, as in 1.5.6.
 - **1.5.6** — Grok image cards are readable at last. Grok writes pictures into
   a message as `<grok:render>` tags whose data lives in a separate field, so
   until now they landed in the export as raw markup — unreadable, and hiding
