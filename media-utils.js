@@ -159,6 +159,71 @@
     return out;
   }
 
+  // ---- Grok: the <grok:render> image cards -------------------------------
+  // MEASURED 2026-08-22 on a live conversation (30 cards), not inferred.
+  // Grok writes image cards into the message text as custom tags:
+  //   <grok:render card_id=".." card_type="image_card" type="render_searched_image">
+  //     <argument name="image_id">nGhqr</argument>
+  //     <argument name="size">"LARGE"</argument></grok:render>
+  // and the matching card sits in response.cardAttachmentsJson as
+  //   { id, type, cardType:'image_card', size,
+  //     image: { thumbnail, source, title, link, original, image_id, ... } }
+  //
+  // These are WEB-SEARCH results, not Grok's own images and not the user's:
+  // in the measured conversation every thumbnail was on Google's cache and the
+  // originals sat on fourteen different third-party sites. So the exporter
+  // does NOT download them. Bundling other people's photographs would need a
+  // wildcard host permission -- the extension would become a bulk scraper of
+  // arbitrary hosts, which is not what anyone installed. What it does instead
+  // is keep the reference intact and readable: what was shown, where it came
+  // from, and where to click. An archive that says "here was a photo from
+  // katedaviesdesigns.com, here is the link" is honest; raw markup is not.
+  const GROK_RENDER_RE = /<grok:render[^>]*>([\s\S]*?)<\/grok:render>/g;
+
+  function grokCardIndex(response) {
+    const byId = {};
+    const cards = response && response.cardAttachmentsJson;
+    if (!Array.isArray(cards)) return byId;
+    for (const c of cards) {
+      let p = c;
+      if (typeof p === 'string') { try { p = JSON.parse(p); } catch (e) { continue; } }
+      if (!p || typeof p !== 'object') continue;
+      const img = p.image;
+      if (!img || typeof img !== 'object') continue;
+      const key = img.image_id || img.imageId || p.id;
+      if (key) byId[String(key)] = img;
+    }
+    return byId;
+  }
+
+  function hostOf(url) {
+    const m = /^https?:\/\/([^\/?#]+)/i.exec(String(url || ''));
+    return m ? m[1].replace(/^www\./, '') : '';
+  }
+
+  /**
+   * Replace <grok:render> image-card tags with a readable reference line.
+   * Unknown cards degrade to a plain note; nothing is ever left as raw markup.
+   */
+  function rewriteGrokRenderTags(text, response) {
+    if (typeof text !== 'string' || text.indexOf('<grok:render') === -1) return text;
+    const byId = grokCardIndex(response);
+    return text.replace(GROK_RENDER_RE, function (whole, inner) {
+      const idm = /<argument name="image_id">([^<]*)<\/argument>/.exec(inner || '');
+      const id = idm ? idm[1].trim() : '';
+      const img = id && byId[id];
+      if (!img) return '*[image card' + (id ? ' ' + id : '') + ' -- no card data in the export]*';
+      const url = img.original || img.thumbnail || img.link || '';
+      const title = String(img.title || '').replace(/[\[\]\n\r]/g, ' ').trim() || 'image';
+      const site = hostOf(img.link) || hostOf(img.source) || hostOf(url);
+      const label = site ? title + ' -- ' + site : title;
+      if (!url) return '*[' + label + ' -- image card without a url]*';
+      let out = '[' + label + '](' + url + ')';
+      if (img.link && img.link !== url) out += ' ([source page](' + img.link + '))';
+      return out;
+    });
+  }
+
   // ---- Filenames ---------------------------------------------------------
 
   function sanitizeAssetName(name) {
@@ -550,6 +615,8 @@
     chatgptPartMedia: chatgptPartMedia,
     chatgptAttachmentNames: chatgptAttachmentNames,
     collectGrokResponseMedia: collectGrokResponseMedia,
+    rewriteGrokRenderTags: rewriteGrokRenderTags,
+    grokCardIndex: grokCardIndex,
     assignAssetNames: assignAssetNames
   };
 });

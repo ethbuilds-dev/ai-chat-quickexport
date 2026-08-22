@@ -397,6 +397,17 @@ async function fetchGrok(conversationId, token) {
   for (const r of responses) {
     const role = r.sender === 'human' ? 'user' : 'assistant';
     let text = (r.message && r.message.trim()) ? r.message.trim() : '';
+    // Grok writes image cards into the message as <grok:render> tags whose
+    // data lives in a sibling field. Until 2026-08-22 those tags landed in the
+    // export as raw markup -- unreadable, and hiding the fact that a picture
+    // had been shown at all. Turn them into a reference before anything else
+    // touches the text. (Never fetched: they are web-search results on other
+    // people's sites -- see MediaUtils.rewriteGrokRenderTags.)
+    try {
+      text = MediaUtils.rewriteGrokRenderTags(text, r);
+    } catch (e) {
+      onSkip('grok render rewrite threw', { error: e && e.message });
+    }
     let refs = [];
     try {
       refs = MediaUtils.collectGrokResponseMedia(r, onSkip) || [];

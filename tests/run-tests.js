@@ -597,6 +597,39 @@ console.log('\n[structural: download mime]');
   check('downloads go out as octet-stream', /DOWNLOAD_MIME = 'application\/octet-stream'/.test(src));
   check('the anchor re-wraps the blob with it', /createObjectURL\(new Blob\(\[blob\], \{ type: DOWNLOAD_MIME \}\)\)/.test(src));
 }
+// ---- grok image cards: measured, not inferred --------------------------
+// Shape taken from a live conversation on 2026-08-22 (30 cards): the tag
+// sits in the message text, the data in response.cardAttachmentsJson.
+console.log('\n[grok: <grok:render> image cards]');
+{
+  const card = {
+    id: 'ba4fc4', type: 'render_searched_image', cardType: 'image_card', size: 'LARGE',
+    image: { image_id: 'nGhqr', title: 'Off-shoulder knit', source: 'katedaviesdesigns.com',
+             link: 'https://katedaviesdesigns.com/post',
+             original: 'https://katedaviesdesigns.com/img.jpg',
+             thumbnail: 'https://encrypted-tbn0.gstatic.com/x' } };
+  const resp = { cardAttachmentsJson: [JSON.stringify(card)] };
+  const tag = '<grok:render card_id=\"e5\" card_type=\"image_card\" type=\"render_searched_image\">' +
+    '<argument name=\"image_id\">nGhqr</argument><argument name=\"size\">\"LARGE\"</argument></grok:render>';
+  const out = MediaUtils.rewriteGrokRenderTags('head\n' + tag, resp);
+  check('raw markup never survives', out.indexOf('<grok:render') === -1, out);
+  check('title kept', out.indexOf('Off-shoulder knit') !== -1, out);
+  check('source site named', out.indexOf('katedaviesdesigns.com') !== -1, out);
+  check('links to the image', out.indexOf('(https://katedaviesdesigns.com/img.jpg)') !== -1, out);
+  check('links to the page it came from', out.indexOf('source page') !== -1, out);
+
+  const objCards = { cardAttachmentsJson: [card] };   // already parsed, not a string
+  check('accepts pre-parsed cards too',
+    MediaUtils.rewriteGrokRenderTags(tag, objCards).indexOf('Off-shoulder knit') !== -1);
+
+  const missing = MediaUtils.rewriteGrokRenderTags(tag, { cardAttachmentsJson: [] });
+  check('unknown card degrades to a note, not markup',
+    missing.indexOf('<grok:render') === -1 && missing.indexOf('nGhqr') !== -1, missing);
+  check('text without tags is untouched',
+    MediaUtils.rewriteGrokRenderTags('plain', resp) === 'plain');
+  check('garbage response never throws',
+    MediaUtils.rewriteGrokRenderTags(tag, null).indexOf('<grok:render') === -1);
+}
 // ---- summary -----------------------------------------------------------
 RETRY_SUITE.then(() => {
   console.log('\n' + passed + ' passed, ' + failed + ' failed');

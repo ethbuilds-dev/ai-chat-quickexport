@@ -58,6 +58,15 @@ No data collection. No external servers. No tracking. Everything local.
 
 ## Changelog
 
+- **1.5.6** — Grok image cards are readable at last. Grok writes pictures into
+  a message as `<grok:render>` tags whose data lives in a separate field, so
+  until now they landed in the export as raw markup — unreadable, and hiding
+  the fact that a picture had been shown at all. Each card now becomes a
+  reference: the title, the site it came from, a link to the image and a link
+  to the page. They are deliberately NOT downloaded: measured on a live
+  conversation, Grok image cards are web-search results whose originals sit on
+  arbitrary third-party sites, and bundling those would require a wildcard
+  host permission this extension has no business asking for.
 - **1.5.5** — The popup now tells you what it is pointed at before you click:
   the platform and the conversation name, in a line under the title. Exporting
   the wrong tab used to be something you found out afterwards. And a media
