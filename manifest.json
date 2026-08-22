@@ -1,9 +1,8 @@
 {
   "manifest_version": 3,
   "name": "AI Chat QuickExport",
-  "version": "1.4.3",
-  "version_name": "1.4.3 + v1.5.1 chunked-media DRAFT (unverified)",
-  "description": "Export full conversations from ChatGPT, Claude, Gemini & Grok in one click. Complete history via API.",
+  "version": "1.5.1",
+  "description": "Export full ChatGPT, Claude, Gemini & Grok conversations - text and images - as Markdown, JSON or one self-contained HTML file.",
   "permissions": [
     "storage",
     "activeTab",
@@ -22,19 +21,6 @@
   "background": {
     "service_worker": "background.js"
   },
-  "content_scripts": [
-    {
-      "matches": [
-        "https://chatgpt.com/*",
-        "https://chat.openai.com/*",
-        "https://claude.ai/*",
-        "https://gemini.google.com/*",
-        "https://grok.com/*"
-      ],
-      "css": ["styles.css"],
-      "run_at": "document_idle"
-    }
-  ],
   "action": {
     "default_popup": "popup.html",
     "default_icon": {

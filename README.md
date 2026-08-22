@@ -21,6 +21,12 @@ QuickExport uses each platform's internal API to fetch your **complete** convers
 
 - **Markdown (.md)** — clean `[SPEAKER]` labels
 - **JSON** — structured data
+- **HTML** — one self-contained page with the images embedded; double-click to read
+
+Conversations with images or attachments export as a `.zip`: the document plus an
+`assets/` folder whose filenames encode where each image sat in the log
+(`msg012-img1.png`). Text-only conversations still export as a single plain file,
+byte-identical to earlier versions.
 
 ## Install
 
@@ -39,7 +45,7 @@ QuickExport uses each platform's internal API to fetch your **complete** convers
 
 1. Open a conversation on any supported platform
 2. Click the QuickExport icon
-3. Choose .md or .json
+3. Choose .md, .json or .html
 4. Save
 
 ## Custom labels
@@ -52,6 +58,23 @@ No data collection. No external servers. No tracking. Everything local.
 
 ## Changelog
 
+- **1.5.1** — Images and attachments export properly, at any size. The media
+  fetch is now one message per asset with live progress: the old bulk transfer
+  put every image's data into a single browser message and a ~100-image
+  conversation (~200 MB encoded) blew past Chrome's ~64 MB per-message ceiling,
+  so the whole batch died and every picture landed in the export as a "not
+  exported" note. Transient upstream failures (5xx/429/network) are retried
+  three times before an image is given up on — measured on a live account, the
+  same Claude URL answered 503 once and 200 on all three retries. Asset
+  filenames now follow the actual file signature rather than the name the
+  platform supplies: claude.ai serves every image re-encoded as WebP while
+  keeping the original filename, and a `.png` holding WebP bytes fails to open
+  in some viewers.
+- **1.5.0** — Media export. Images and attachments are downloaded and packed
+  alongside the conversation (`assets/`, position-encoded filenames), links are
+  rewritten in place, and a third format is added: a self-contained `.html`
+  with the images embedded. Adds the `*.oaiusercontent.com` host permission,
+  needed to fetch ChatGPT's signed image URLs.
 - **1.4.3** — Fix ChatGPT 403 errors. OpenAI tightened Cloudflare bot-protection on `chatgpt.com/backend-api/*`, which started rejecting the extension's background fetch. The ChatGPT fetch now runs inside the page context, so it looks identical to ChatGPT's own request and is no longer blocked. Claude/Gemini/Grok unchanged.
 
 ## License
