@@ -58,6 +58,14 @@ No data collection. No external servers. No tracking. Everything local.
 
 ## Changelog
 
+- **1.5.4** — Hardening from an adversarial pass (53 attacks, `node
+  tests/adversarial.js`). Asset names now have bidirectional-override and
+  control characters stripped: a file called "photo<RLO>gnp.exe" displays as
+  "photoexe.png" in any file manager, and a NUL inside a zip entry name is
+  malformed enough that some extractors truncate it. Trailing dots and spaces
+  are trimmed, which Windows silently does anyway — turning two different
+  names into one collision. The popup memory added in 1.5.2 is now pruned:
+  200 most recent conversations, nothing older than 90 days.
 - **1.5.3** — Your filename reaches the disk exactly as you typed it. Chrome
   substitutes a download extension from the operating system MIME registry, so a
   .json export could arrive as .customization and a .html one as .htm depending

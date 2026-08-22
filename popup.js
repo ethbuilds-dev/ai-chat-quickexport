@@ -78,6 +78,26 @@ function memoryKey(detected) {
   return 'ui:' + detected.platform + ':' + detected.conversationId;
 }
 
+// One record per conversation, kept forever, is a slow leak: somebody with a
+// few thousand chats accumulates a few thousand records in a 10 MB store, and
+// a filename they typed in March is not help in September. Found by the
+// adversarial pass on 2026-08-22 (Zaina: "faci o testare si contra?").
+const MEMORY_MAX = 200;                       // most recent conversations kept
+const MEMORY_TTL = 90 * 24 * 60 * 60 * 1000;  // and nothing older than 90 days
+
+function pruneMemory() {
+  chrome.storage.local.get(null, (all) => {
+    const now = Date.now();
+    const mine = Object.keys(all || {}).filter(k => k.indexOf('ui:') === 0);
+    const dead = mine.filter(k => now - ((all[k] && all[k].at) || 0) > MEMORY_TTL);
+    const live = mine.filter(k => dead.indexOf(k) === -1)
+      .sort((a, b) => ((all[b] && all[b].at) || 0) - ((all[a] && all[a].at) || 0));
+    const overflow = live.slice(MEMORY_MAX);
+    const drop = dead.concat(overflow);
+    if (drop.length) chrome.storage.local.remove(drop);
+  });
+}
+
 function rememberFilename(detected) {
   if (!detected || !detected.conversationId) return;
   const value = document.getElementById('exportFilename').value.trim();
@@ -85,7 +105,7 @@ function rememberFilename(detected) {
     const rec = got[memoryKey(detected)] || {};
     rec.filename = value;
     rec.at = Date.now();
-    chrome.storage.local.set({ [memoryKey(detected)]: rec });
+    chrome.storage.local.set({ [memoryKey(detected)]: rec }, pruneMemory);
   });
 }
 
@@ -95,7 +115,7 @@ function rememberStatus(detected, text) {
     const rec = got[memoryKey(detected)] || {};
     rec.status = text;
     rec.at = Date.now();
-    chrome.storage.local.set({ [memoryKey(detected)]: rec });
+    chrome.storage.local.set({ [memoryKey(detected)]: rec }, pruneMemory);
   });
 }
 

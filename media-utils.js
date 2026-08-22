@@ -163,9 +163,21 @@
 
   function sanitizeAssetName(name) {
     const s = String(name == null ? '' : name)
+      // Control characters first: a NUL inside a zip entry name is malformed
+      // and some extractors truncate the name there, which is a quiet way to
+      // land a file somewhere other than where the archive says.
+      .replace(/[\u0000-\u001f\u007f]/g, '')
+      // Bidirectional overrides: "photo<U+202E>gnp.exe" DISPLAYS as
+      // "photoexe.png" in every file manager while being an .exe on disk.
+      // The platform supplies these names; we are the ones writing them to a
+      // real filesystem, so we are the ones who strip the trick.
+      .replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '')
       .replace(/[<>:"/\\|?*]/g, '')
+      .trim()
       .replace(/\s+/g, '-')
       .replace(/^\.+/, '')            // no dot-files / traversal
+      .replace(/[. ]+$/, '')           // Windows silently drops these, which
+                                       // turns "a." and "a" into a collision
       .substring(0, 120);
     return s || 'file';
   }
