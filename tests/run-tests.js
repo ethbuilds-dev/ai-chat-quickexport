@@ -527,6 +527,49 @@ console.log('\n[structural: retry wired into every asset path]');
   check('chatgpt SW fallback retries', bgSrc.includes('fetchRetrying(payload.downloadUrl)'));
 }
 
+// ---- uploads the platform does not serve: honest, not accused ----------
+// Measured live 2026-08-22: an uploaded document arrives from claude.ai as
+// file_kind:'blob' with no url fields and a container path, and EVERY file
+// endpoint 404s for it. Guessing a preview URL turned that into a fake
+// 'download failed', which reads like our bug in someone's permanent archive.
+console.log('\n[claude: unreachable uploads are reported, not blamed]');
+{
+  const org = 'org-1234';
+  const blobMsg = { files: [{ file_kind: 'blob', file_uuid: 'u-1', file_name: 'notes.md', size_bytes: 42 }] };
+  const imgMsg  = { files: [{ file_kind: 'image', file_uuid: 'u-2', file_name: 'shot.png' }] };
+  const skips = [];
+  const blobRefs = MediaUtils.collectClaudeMessageMedia(blobMsg, org, r => skips.push(r));
+  const imgRefs  = MediaUtils.collectClaudeMessageMedia(imgMsg, org, r => skips.push(r));
+
+  check('blob upload -> one ref', blobRefs.length === 1, String(blobRefs.length));
+  check('blob upload -> kind unavailable', blobRefs[0] && blobRefs[0].kind === 'unavailable', blobRefs[0] && blobRefs[0].kind);
+  check('blob upload -> no invented url', blobRefs[0] && !blobRefs[0].url);
+  check('blob upload -> carries a reason', !!(blobRefs[0] && blobRefs[0].reason));
+  check('blob upload -> keeps its name', blobRefs[0] && blobRefs[0].name === 'notes.md');
+  check('image STILL gets the constructed preview url',
+    imgRefs.length === 1 && imgRefs[0].kind === 'claude-url' &&
+    imgRefs[0].url === '/api/organizations/org-1234/files/u-2/preview', imgRefs[0] && imgRefs[0].url);
+
+  const txt = 'before ' + MediaUtils.makePlaceholder('m1', 'notes.md', false) + ' after';
+  const withNote = MediaUtils.rewriteAssetLinks(txt, {}, { m1: 'uploaded file - not served by the platform' });
+  check('note explains WHY when we know', withNote.indexOf('not served by the platform') !== -1, withNote);
+  check('note drops the generic accusation', withNote.indexOf('download failed') === -1, withNote);
+  const noNote = MediaUtils.rewriteAssetLinks(txt, {}, {});
+  check('unknown cause keeps the old wording', noNote.indexOf('download failed or unsupported') !== -1, noNote);
+}
+
+// ---- structural: one download path, one fewer permission ---------------
+console.log('\n[structural: downloads]');
+{
+  const popupSrc = fs.readFileSync(path.join(__dirname, '..', 'popup.js'), 'utf8');
+  const mf = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'manifest.json'), 'utf8'));
+  const calls = (popupSrc.match(/chrome\.downloads\.download\(/g) || []).length;
+  check('no chrome.downloads call sites left', calls === 0, String(calls));
+  check('downloads permission dropped', mf.permissions.indexOf('downloads') === -1, mf.permissions.join(','));
+  check('every export goes through the anchor', /function downloadBlobFile\(blob, filename\) \{\s+downloadBlobViaAnchor/.test(popupSrc));
+  check('manifest version is 1.5.1', mf.version === '1.5.1', mf.version);
+  check('no draft marker left in the manifest', !mf.version_name, String(mf.version_name));
+}
 // ---- summary -----------------------------------------------------------
 RETRY_SUITE.then(() => {
   console.log('\n' + passed + ' passed, ' + failed + ' failed');

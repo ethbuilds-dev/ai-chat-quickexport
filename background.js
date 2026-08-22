@@ -595,6 +595,11 @@ async function fetchMediaAssets(media, platform, tabId) {
       } else if (ref.kind === 'inline-text') {
         // Text extracted by the platform (e.g. Claude attachment content).
         assets.push({ id: ref.id, name: ref.name || null, base64: utf8ToBase64(ref.text || ''), mediaType: 'text/plain', ok: true });
+      } else if (ref.kind === 'unavailable') {
+        // The platform does not expose these bytes at all (measured, not
+        // guessed). No request is made; the export says why instead.
+        assets.push({ id: ref.id, name: ref.name || null, ok: false,
+                      error: ref.reason || 'not available from the platform' });
       } else if (ref.kind === 'claude-url') {
         assets.push(await fetchClaudeAsset(ref));
       } else if (ref.kind === 'chatgpt-file') {

@@ -46,7 +46,7 @@
    *        Missing ids are rewritten to an italic "unavailable" note so the
    *        export never ships a dangling asset: link.
    */
-  function rewriteAssetLinks(text, idToPath) {
+  function rewriteAssetLinks(text, idToPath, idToNote) {
     if (typeof text !== 'string' || text.indexOf('](asset:') === -1) return text;
     return text.replace(PLACEHOLDER_RE, function (whole, bang, alt, id) {
       const path = idToPath && idToPath[id];
@@ -61,7 +61,10 @@
         const shown = generic ? path.replace(/^assets\//, '') : alt;
         return bang + '[' + shown + '](' + path + ')';
       }
-      return '*[' + (alt || 'attachment') + ' -- not exported (download failed or unsupported)]*';
+      const why = idToNote && idToNote[id];
+      return why
+        ? '*[' + (alt || 'attachment') + ' -- ' + why + ']*'
+        : '*[' + (alt || 'attachment') + ' -- not exported (download failed or unsupported)]*';
     });
   }
 
@@ -289,9 +292,19 @@
     for (const f of fileArrays) {
       if (!f || typeof f !== 'object') continue;
       const name = f.file_name || f.name || null;
+      const fileKind = String(f.file_kind || '').toLowerCase();
+      const looksImage = fileKind === 'image' || !fileKind;
       let url = firstUrlField(f);
-      // Fallback guess: construct the preview endpoint from the file uuid.
-      if (!url && (f.file_uuid || f.uuid) && orgId) {
+      // Fallback guess: construct the preview endpoint from the file uuid --
+      // but ONLY for images. Measured 2026-08-22 on a live account: an
+      // uploaded document arrives as file_kind:'blob' with no url fields at
+      // all and a `path` of /mnt/user-data/uploads/... (a container path, not
+      // a URL), and EVERY file endpoint 404s for it -- /preview, /download,
+      // /content, /document, /raw, bare, on both /api/{org}/ and
+      // /api/organizations/{org}/. Guessing a preview URL for those turned a
+      // platform limitation into a fake "download failed", which reads like
+      // our bug in an archive someone keeps for years.
+      if (!url && looksImage && (f.file_uuid || f.uuid) && orgId) {
         url = '/api/organizations/' + orgId + '/files/' + (f.file_uuid || f.uuid) + '/preview';
       }
       const key = (f.file_uuid || f.uuid || url || name || '') + '';
@@ -303,8 +316,20 @@
           alt: name || 'image',
           name: name || null,
           url: url,
-          isImage: (f.file_kind || '').toLowerCase() === 'image' || !f.file_kind
+          isImage: looksImage
         });
+      } else if (f.file_uuid || f.uuid || name) {
+        // A real upload we cannot reach -- not a failure of ours: say so in
+        // the export. (An entry with neither a name nor a uuid is not a file
+        // at all; those stay silently skipped, as before.)
+        refs.push({
+          kind: 'unavailable',
+          alt: name || 'file',
+          name: name || null,
+          isImage: false,
+          reason: 'uploaded file - claude.ai does not serve its contents through the web API'
+        });
+        if (onSkip) onSkip('claude file entry without usable url', f);
       } else if (onSkip) {
         onSkip('claude file entry without usable url', f);
       }

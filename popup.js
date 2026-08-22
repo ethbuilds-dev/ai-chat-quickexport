@@ -155,28 +155,13 @@ async function doExport(format) {
       buildBaseFilename(detected, labels.userLabel, labels.assistantLabel);
     const filename = sanitize(base) + '.' + format;
 
-    // Download via the chrome.downloads API (needs the "downloads" permission).
-    // The old anchor-click from the popup context was fragile — large blobs +
-    // popup teardown produced Chrome "failed due to insufficient permissions"
-    // even with site auto-downloads allowed. chrome.downloads is the robust path.
-    const blob = new Blob([content], { type: mimeType });
-    const url = URL.createObjectURL(blob);
-    if (chrome.downloads && chrome.downloads.download) {
-      chrome.downloads.download({ url, filename, saveAs: false }, () => {
-        if (chrome.runtime.lastError) {
-          setStatus('Download blocked: ' + chrome.runtime.lastError.message, 'error');
-        }
-        setTimeout(() => URL.revokeObjectURL(url), 30000);
-      });
-    } else {
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 10000);
-    }
+    // 22.08.2026: this was the last chrome.downloads call site, and it is the
+    // one Zaina caught -- a plain ChatGPT export offered the blob UUID as the
+    // filename instead of the name she had typed. The old comment here claimed
+    // the anchor path was "fragile" with large blobs; the evidence says
+    // otherwise (a 217 MB zip downloaded through it the same evening, named
+    // correctly). One path for every format now.
+    downloadBlobFile(new Blob([content], { type: mimeType }), filename);
 
     // Word count
     const counts = countWords(messages);
@@ -217,24 +202,15 @@ function downloadBlobViaAnchor(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 30000);
 }
 
+// 22.08.2026, caught by Zaina on a live ChatGPT export: the Save-As dialog
+// came up pre-filled with the blob UUID instead of the filename she had typed.
+// The downloads API hands Chrome a blob: URL and the name is lost on
+// the way; the anchor path sets `download` synchronously and Chrome honours it.
+// The zip/html exports already used the anchor -- the plain-file path was the
+// last one still on the old call, kept "byte-identical to v1.4.3" out of
+// caution. One download path now, and one permission fewer to ask for.
 function downloadBlobFile(blob, filename) {
-  const url = URL.createObjectURL(blob);
-  if (chrome.downloads && chrome.downloads.download) {
-    chrome.downloads.download({ url, filename, saveAs: false }, () => {
-      if (chrome.runtime.lastError) {
-        setStatus('Download blocked: ' + chrome.runtime.lastError.message, 'error');
-      }
-      setTimeout(() => URL.revokeObjectURL(url), 30000);
-    });
-  } else {
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 10000);
-  }
+  downloadBlobViaAnchor(blob, filename);
 }
 
 async function doMediaExport(detected, tab, media, messages, labels, format, title) {
@@ -306,8 +282,14 @@ async function doMediaExport(detected, tab, media, messages, labels, format, tit
 
   // Rewrite placeholders in the message texts BEFORE generating, so both
   // .md and .json formats carry the final relative links (or failure notes).
+  // Why an asset is missing, when we know: an upload the platform does not
+  // serve is not a download failure, and an archive should not imply it was.
+  const idToNote = {};
+  for (const a of assigned.named) {
+    if (a && !a.ok && a.id && a.error) idToNote[a.id] = a.error;
+  }
   const rewritten = messages.map(m =>
-    Object.assign({}, m, { text: MediaUtils.rewriteAssetLinks(m.text, assigned.idToPath) })
+    Object.assign({}, m, { text: MediaUtils.rewriteAssetLinks(m.text, assigned.idToPath, idToNote) })
   );
 
   setStatus(`${rewritten.length} messages, preparing ${format}...`, 'info');
