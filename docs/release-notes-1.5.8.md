@@ -85,8 +85,9 @@ Written here so nobody finds out the hard way:
 
 ## Install
 
-The Chrome Web Store still carries 1.4.0 while 1.5.8 goes through review. Until it
-clears: download `ai-chat-quickexport-v1.5.8.zip` below, unzip it,
+**Now live on the Chrome Web Store** — the update service serves 1.5.8
+(verified 2026-08-24). To install unpacked instead: download
+`ai-chat-quickexport-v1.5.8.zip` below, unzip it,
 `chrome://extensions/` → Developer mode → **Load unpacked** → select the folder.
 Do not move the folder afterwards; Chrome remembers the path.
 

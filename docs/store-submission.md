@@ -2,7 +2,11 @@
 
 *Everything the Web Store dashboard asks for, written out so the submission is
 a copy-paste and not a re-invention. Last revised 2026-08-23, for the 1.5.8
-upload (the store's published version is 1.4.0, 8 June 2026).*
+upload. **STATUS 2026-08-24: submitted, reviewed and PUBLISHED — the store now
+serves 1.5.8.** Verified against Chrome's own update endpoint rather than a
+dashboard: `version="1.5.8"`, `status="ok"`, `..._1_5_8_0.crx`, 45,919 bytes,
+sha256 `6330d648…`. What follows stays as the record of what was submitted, and
+as the template for the next version.*
 
 ---
 
@@ -137,7 +141,9 @@ Between the published 1.4.0 and this 1.5.8, two host permissions are added — `
 - [x] Screenshots at exactly 1280×800, showing 1.5 behaviour (the 1.4 set showed two buttons and no images — it would have misrepresented the product).
 - [x] Privacy policy page updated to match the actual permissions and the actual storage.
 - [x] Known limits written in the listing, the README and the policy — not discovered by the user.
-- [ ] Uploaded to the dashboard, justifications pasted, submitted for review.
+- [x] Uploaded to the dashboard, justifications pasted, submitted for review.
+- [x] **Passed review and went live** — 2026-08-24, confirmed by the update
+  service, which is the only source that speaks for what users actually get.
 
 ---
 

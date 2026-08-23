@@ -62,9 +62,10 @@ byte-identical to earlier versions.
 
 ### Chrome Web Store
 [AI Chat QuickExport](https://chromewebstore.google.com/detail/oocipcgmlmgnkkcodlnnpdddgmodhoai)
-— the published version there is **1.4.0** (8 June 2026). **1.5.8 is packaged and
-queued for upload**; this line is updated the day it is actually submitted, not
-before. Until it clears review, install manually below to get the image export.
+— **LIVE with 1.5.8.** Verified against Chrome's own update service on
+2026-08-24, not against a dashboard screenshot: the endpoint serves
+`..._1_5_8_0.crx`, `version="1.5.8"`, `status="ok"`, 45,919 bytes,
+sha256 `6330d648…`. Install from the store, or unpacked below if you prefer.
 
 ### Manual install
 1. Download or clone this repo
