@@ -737,3 +737,18 @@ document.getElementById('exportFilename').addEventListener('input', async () => 
 });
 document.getElementById('userLabel').addEventListener('input', updateFilenamePreview);
 document.getElementById('assistantLabel').addEventListener('input', updateFilenamePreview);
+
+// --- Versiunea, la vedere in popup (adaugat 27.08.2026, cerut de Starlight).
+// Se ia din manifest, NU se scrie de mana: o versiune scrisa de mana ramane in
+// urma fata de build si devine exact felul de chitanta falsa pe care casa asta
+// o vaneaza. Daca API-ul lipseste, randul ramane gol — mai bine nimic decat un
+// numar inventat.
+(function showVersion() {
+  try {
+    var el = document.getElementById('version');
+    if (!el) return;
+    var m = (typeof chrome !== 'undefined' && chrome.runtime &&
+             chrome.runtime.getManifest) ? chrome.runtime.getManifest() : null;
+    if (m && m.version) el.textContent = 'AI Chat QuickExport v' + m.version;
+  } catch (e) { /* fara versiune afisata, niciodata una gresita */ }
+})();

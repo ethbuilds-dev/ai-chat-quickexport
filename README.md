@@ -58,6 +58,21 @@ Conversations with images or attachments export as a `.zip`: the document plus a
 (`msg012-img1.png`). Text-only conversations still export as a single plain file,
 byte-identical to earlier versions.
 
+## Which version am I running?
+
+Three places, in the order that costs you the least:
+
+1. **In the extension popup** — the bottom line reads `AI Chat QuickExport vX.Y.Z`.
+   It is read from the manifest at runtime, so it cannot drift from the build.
+2. **`chrome://extensions`** — find AI Chat QuickExport; the version is printed
+   under the name. This works on every build, including ones older than the line
+   above.
+3. **The exported file itself** — Markdown and JSON exports carry the exporter
+   version in their header/metadata.
+
+Added because someone using this tool asked and could not find the answer
+anywhere — which was a fair complaint about the tool, not about the reader.
+
 ## Install
 
 ### Chrome Web Store
