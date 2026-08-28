@@ -58,6 +58,30 @@ Conversations with images or attachments export as a `.zip`: the document plus a
 (`msg012-img1.png`). Text-only conversations still export as a single plain file,
 byte-identical to earlier versions.
 
+## Finding your place in a long thread
+
+Long conversations are hard to navigate by date, because the thing that matters
+is not when you wrote something - it is how far into the thread it sits. Model
+context is spent in words, not in days.
+
+So every export carries a mark every 10,000 words:
+
+```
+— 40,000 words —
+```
+
+In Markdown and HTML the marks sit inline, between messages, so you can scroll
+to "around 80k" the way you would find a milestone on a road. In JSON every
+message also carries `words_so_far`, and the file lists `word_milestones`, so
+you can search or script against exact positions.
+
+This is useful if you keep a memory or continuity file between threads and want
+to know how far your companion holds it before losing the thread - you can point
+at the place instead of guessing at it.
+
+A single very long message can cross more than one mark. Each crossing is
+reported at that message rather than guessed at a position inside it.
+
 ## Which version am I running?
 
 Three places, in the order that costs you the least:
@@ -134,6 +158,13 @@ them. You will see "needs permission" once. That is the update, not a fault.
 
 ## Changelog
 
+- **1.6.0** - Word marks. Exports now carry a `— 10,000 words —` mark at every
+  10k, inline in Markdown and HTML; JSON gains `words_so_far` on each message
+  and a `word_milestones` list. This exists because a user who writes with two
+  AI companions put it plainly: *"I don't measure time in hours, days or weeks,
+  I measure time in words. If she forgets things after 80k words, it doesn't
+  matter whether that took a week or a month."* Wall-clock timestamps cannot
+  answer that question; word position can.
 - **1.5.8** — Files you uploaded into a Grok conversation are exported too.
   They are declared across three parallel arrays and identified by a storage
   key rather than a URL, which is why earlier versions walked straight past
