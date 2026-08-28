@@ -575,13 +575,23 @@ function generateMD(title, messages, userLabel, assistantLabel) {
   lines.push(`\n> Word count — ${userLabel}: ${counts.userWords.toLocaleString()} · ${assistantLabel}: ${counts.assistantWords.toLocaleString()} · Total: ${counts.total.toLocaleString()}`);
   let current = null;
 
-  for (const msg of messages) {
+  // v1.6: the reader's ruler. Starlight measures thread time in WORDS, not
+  // hours — so the export carries a mark every 10k, and he can point at a
+  // place inside a 384k-word file instead of guessing where she lost the thread.
+  const marks = (typeof WordRuler !== 'undefined') ? WordRuler.marksByIndex(messages) : {};
+
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
     const label = msg.role === 'user' ? userLabel : assistantLabel;
     if (label !== current) {
       current = label;
       lines.push(`\n\n[${label}]`);
     }
     lines.push(msg.text);
+    if (marks[i]) {
+      for (const w of marks[i]) lines.push(`\n\n${WordRuler.label(w)}`);
+      current = null;   // re-announce the speaker after a mark
+    }
   }
 
   return lines.join('\n').trim();
@@ -598,11 +608,19 @@ function generateJSON(title, messages, userLabel, assistantLabel) {
       assistant: counts.assistantWords,
       total: counts.total
     },
-    messages: messages.map(m => ({
-      speaker: m.role === 'user' ? userLabel : assistantLabel,
-      role: m.role,
-      text: m.text
-    }))
+    word_milestones: (typeof WordRuler !== 'undefined')
+      ? WordRuler.milestones(messages) : [],
+    messages: (() => {
+      const runs = (typeof WordRuler !== 'undefined') ? WordRuler.cumulative(messages) : [];
+      return messages.map((m, i) => ({
+        speaker: m.role === 'user' ? userLabel : assistantLabel,
+        role: m.role,
+        // words_so_far: cumulative position, so a reader can find the exact
+        // place a companion started losing the thread (Starlight, 27.08.2026).
+        words_so_far: runs[i],
+        text: m.text
+      }));
+    })()
   }, null, 2);
 }
 
@@ -623,7 +641,10 @@ function generateHTML(title, messages, userLabel, assistantLabel, mediaMaps) {
 
   const body = [];
   let current = null;
-  for (const msg of messages) {
+  const marks = (typeof WordRuler !== 'undefined') ? WordRuler.marksByIndex(messages) : {};
+
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
     const role = msg.role === 'user' ? 'user' : 'assistant';
     const label = msg.role === 'user' ? userLabel : assistantLabel;
     if (label !== current) {
@@ -631,6 +652,10 @@ function generateHTML(title, messages, userLabel, assistantLabel, mediaMaps) {
       body.push(`<div class="speaker ${role}">[${esc(label)}]</div>`);
     }
     body.push(`<div class="msg ${role}">${MediaUtils.convertPlaceholdersToHtml(msg.text, idToSrc, idToName)}</div>`);
+    if (marks[i]) {
+      for (const w of marks[i]) body.push(`<div class="wordmark">${esc(WordRuler.label(w))}</div>`);
+      current = null;
+    }
   }
 
   return `<!DOCTYPE html>
@@ -640,6 +665,16 @@ function generateHTML(title, messages, userLabel, assistantLabel, mediaMaps) {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)}</title>
 <style>
+  .wordmark {
+    /* the reader's ruler: a mark every 10k words. Quiet on purpose — it is a
+       milestone stone by the road, not a heading. */
+    text-align: center;
+    letter-spacing: .08em;
+    font-size: .8rem;
+    color: #8a8577;
+    margin: 2.2rem 0;
+    user-select: none;
+  }
   body {
     font-family: Georgia, 'Times New Roman', serif;
     line-height: 1.6;

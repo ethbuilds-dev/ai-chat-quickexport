@@ -735,6 +735,62 @@ console.log('\n[structural: grok uploads wired]');
     src.indexOf('collectGrokUploadMedia') < src.indexOf('collectGrokResponseMedia(r, onSkip)'));
 }
 
+// ---- word ruler: thread time measured in words --------------------------
+// Starlight, 27.08.2026: "I don't measure time in hours, days or weeks, I
+// measure time in words." These guard the marks he navigates a 384k-word
+// export by, so a refactor cannot quietly move them.
+console.log('\n[word ruler]');
+{
+  const WordRuler = require(path.join(__dirname, '..', 'word-ruler.js'));
+  const msg = (n, role) => ({ role: role || 'user', text: 'w '.repeat(n).trim() });
+
+  check('counts words, not characters', WordRuler.countWords('one two  three\n four') === 4);
+  check('empty and null are zero',
+    WordRuler.countWords('') === 0 && WordRuler.countWords(null) === 0 &&
+    WordRuler.countWords('   ') === 0);
+  check('cumulative runs forward',
+    JSON.stringify(WordRuler.cumulative([msg(3), msg(2), msg(5)])) === '[3,5,10]');
+  check('no messages, no marks',
+    WordRuler.milestones([]).length === 0 && WordRuler.milestones(null).length === 0);
+  check('no mark before the first 10k', WordRuler.milestones([msg(9999)]).length === 0);
+
+  const exact = WordRuler.milestones([msg(10000)]);
+  check('a mark lands exactly ON the boundary',
+    exact.length === 1 && exact[0].words === 10000 && exact[0].afterIndex === 0,
+    JSON.stringify(exact));
+
+  // The ugly case that makes this honest: one huge message crosses several
+  // marks at once. Every crossing is reported, pinned to that message, rather
+  // than inventing a position inside it.
+  const many = WordRuler.milestones([msg(1000), msg(35000)]);
+  check('one long message reports every boundary it crosses',
+    many.length === 3 && many.every(m => m.afterIndex === 1) &&
+    many.map(m => m.words).join(',') === '10000,20000,30000', JSON.stringify(many));
+
+  check('marks are in ascending order',
+    WordRuler.milestones([msg(45000)]).map(m => m.words).join(',') === '10000,20000,30000,40000');
+  check('step is configurable', WordRuler.milestones([msg(2500)], 1000).length === 2);
+  check('a nonsense step falls back to the default',
+    WordRuler.milestones([msg(10000)], 0).length === 1 &&
+    WordRuler.milestones([msg(10000)], -5).length === 1);
+  check('marksByIndex groups by message',
+    JSON.stringify(WordRuler.marksByIndex([msg(1000), msg(35000)])) === '{"1":[10000,20000,30000]}');
+  check('label reads as a milestone, thousands separated',
+    WordRuler.label(120000) === '\u2014 120,000 words \u2014', WordRuler.label(120000));
+}
+
+// ---- structural: the ruler actually reaches the exports -----------------
+console.log('\n[structural: word ruler wired]');
+{
+  const pop = fs.readFileSync(path.join(__dirname, '..', 'popup.js'), 'utf8');
+  const html = fs.readFileSync(path.join(__dirname, '..', 'popup.html'), 'utf8');
+  check('popup.html loads word-ruler.js', html.indexOf('word-ruler.js') !== -1);
+  check('markdown export emits marks', pop.indexOf('WordRuler.label(w)') !== -1);
+  check('json export carries cumulative position', pop.indexOf('words_so_far') !== -1);
+  check('json export lists the milestones', pop.indexOf('word_milestones') !== -1);
+  check('html export emits marks', pop.indexOf('class=\"wordmark\"') !== -1);
+  check('html mark has a style', pop.indexOf('.wordmark {') !== -1);
+}
 // ---- summary -----------------------------------------------------------
 RETRY_SUITE.then(() => {
   console.log('\n' + passed + ' passed, ' + failed + ' failed');
