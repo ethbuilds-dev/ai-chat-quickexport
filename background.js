@@ -28,7 +28,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .then(token => {
         // ChatGPT re-acquires its own token inside the page context (see
         // fetchChatGPT), so a null here isn't fatal for it. The cookie-auth
-        // platforms (Claude/Gemini/Grok) return the '__COOKIE_AUTH__' marker.
+        // platforms (Claude/Gemini/Grok/AI Studio) return the '__COOKIE_AUTH__' marker.
         if (!token && platform !== 'chatgpt') {
           throw new Error('Could not capture auth token. Refresh the page and try again.');
         }
@@ -103,6 +103,11 @@ async function captureTokenFromPage(tabId, platform) {
               return '__COOKIE_AUTH__';
             }
 
+            if (plat === 'aistudio') {
+              // AI Studio: read from the page DOM, no API and no token to capture
+              return '__COOKIE_AUTH__';
+            }
+
             return null;
           } catch(e) {
             return null;
@@ -133,6 +138,9 @@ async function fetchConversation(conversationId, token, platform, tabId) {
   }
   if (platform === 'gemini') {
     return fetchGemini(conversationId, token, tabId);
+  }
+  if (platform === 'aistudio') {
+    return fetchAIStudio(conversationId, token, tabId);
   }
   if (platform === 'grok') {
     return fetchGrok(conversationId, token);
@@ -337,6 +345,423 @@ async function fetchGemini(conversationId, token, tabId) {
     throw new Error('Could not extract Gemini conversation');
   } catch(err) {
     throw new Error('Gemini: ' + err.message);
+  }
+}
+
+// ── Google AI Studio (DOM) ────────────────────────────────────────────
+// AI Studio has no export API, so — like Gemini — the conversation is read
+// from the rendered page. The work is split so the half that can go wrong
+// with text is testable offline (tests/fixtures/aistudio-dom.json):
+//   aistudioReadPage()         runs INSIDE the tab, touches the DOM, returns
+//                              raw innerText per chunk and interprets nothing
+//   aistudioTurnsToMessages()  runs here and is pure: strips the page's
+//                              chrome, fences code, folds chunks into messages
+// DOM facts, verified live on aistudio.google.com/prompts/<id> (2026-11-01, a
+// 120-turn prompt):
+//   - every turn is <ms-chat-turn id="...">; an element inside it carries
+//     data-turn-role="User" | "Model"
+//   - THE LIST IS VIRTUALIZED. All 120 shells exist, with stable ids, but only
+//     the 15-19 nearest the viewport hold any content; every other turn has an
+//     EMPTY div.turn-content. Read once, the page yields ~15% of the
+//     conversation (the first version of this adapter exported 3 text chunks
+//     out of 120 turns). The scroller is ms-autoscroll-container (scrollHeight
+//     26985 against clientHeight 446), so the page is read by scrolling it.
+//   - the content is div.turn-content. ms-chat-turn-options (it renders the
+//     icon words "edit" / "more_vert") and the "User 2:09 PM" header line are
+//     NOT part of the content chunks
+//   - chunks: ms-text-chunk (rendered markdown), ms-code-block,
+//     ms-thought-chunk (a "Thoughts" panel), and ms-prompt-chunk for an
+//     attached file: icon word, icon word, filename, "1,291 tokens" (a turn
+//     can be nothing but several such cards)
+//   - code blocks and thought panels are expansion panels: their headers put
+//     the icon words content_copy / expand_less / expand_more into innerText
+// NOT seen, so handled both ways: whether a fenced code block sits inside an
+// ms-text-chunk or beside it, and what an expanded thought panel says on its
+// header. If the layout is not recognized at all the turn's whole content
+// area is returned as `fallback` instead of dropping the text.
+
+// INJECTED into the tab by chrome.scripting.executeScript, which serializes it
+// with toString() and awaits the promise it returns -- so it must stay
+// self-contained: nothing declared outside its own body may be referenced from
+// in here. Returns plain data only.
+//
+// A virtualized list is read in passes. Everything on screen is read first; if
+// any turn is still empty, the scroller is stepped from top to bottom (0.8 of a
+// screen at a time, waiting for the DOM to go quiet after each step), each turn
+// is read wherever it shows content, and the scroll position is put back. A chat
+// that is fully rendered is never scrolled.
+async function aistudioReadPage() {
+  const KNOWN = 'ms-thought-chunk, ms-text-chunk, ms-code-block';
+  const innerText = (el) => (el && typeof el.innerText === 'string') ? el.innerText : '';
+  // Outermost only: a chunk nested inside another is already part of its text.
+  const outermost = (list) => list.filter((el) => !list.some((o) => o !== el && o.contains(el)));
+  // A bare ms-prompt-chunk (no text, thought or code inside) is an attachment
+  // card; one that wraps a text chunk is only a wrapper around it.
+  const isUnit = (el) => el.matches(KNOWN) ||
+    (el.localName === 'ms-prompt-chunk' && !el.querySelector(KNOWN));
+  // The code itself (not the block's header: language label, copy button),
+  // and its language when the markup names one. A collapsed block hides its
+  // code from innerText, but the markup still holds it.
+  const readCode = (block) => {
+    const node = block.querySelector('pre code') || block.querySelector('code') ||
+      block.querySelector('pre');
+    const cls = (node && typeof node.className === 'string') ? node.className : '';
+    const m = /(?:^|\s)(?:language|lang)-([\w#+.-]+)/.exec(cls);
+    let code = innerText(node || block);
+    if (!code.trim() && node && typeof node.textContent === 'string') code = node.textContent;
+    return { block: innerText(block), code, lang: m ? m[1] : '' };
+  };
+
+  const shells = () => Array.from(document.querySelectorAll('ms-chat-turn'));
+  const keyOf = (turn, i) => turn.id || ('@' + i);
+  const bodyOf = (turn) => turn.querySelector('div.turn-content') || turn;
+  const unitsOf = (turn) => outermost(
+    Array.from(bodyOf(turn).querySelectorAll(KNOWN + ', ms-prompt-chunk')).filter(isUnit)
+  );
+  const readTurn = (turn, units) => {
+    const roleEl = turn.matches('[data-turn-role]') ? turn : turn.querySelector('[data-turn-role]');
+    const role = roleEl ? String(roleEl.getAttribute('data-turn-role') || '').trim() : '';
+    const chunks = units.map((el) => {
+      const tag = el.localName;
+      if (tag === 'ms-code-block') {
+        const c = readCode(el);
+        return { kind: 'code', text: c.code, lang: c.lang };
+      }
+      if (tag === 'ms-text-chunk') {
+        const chunk = { kind: 'text', text: innerText(el) };
+        const blocks = outermost(Array.from(el.querySelectorAll('ms-code-block')));
+        if (blocks.length) chunk.code = blocks.map(readCode);
+        return chunk;
+      }
+      if (tag === 'ms-thought-chunk') return { kind: 'thought', text: innerText(el) };
+      return { kind: 'prompt', text: innerText(el) };
+    });
+    const rec = { role, chunks };
+    // No recognizable chunk (a layout not met before, or a turn the page has not
+    // rendered): hand back the whole content area rather than lose the text.
+    if (chunks.length === 0) rec.fallback = innerText(bodyOf(turn));
+    return rec;
+  };
+
+  // The richest record seen so far for each turn id. A Map keeps first-seen
+  // order, but the order that counts is the DOM's, read again at the end.
+  const seen = new Map();
+  const harvest = () => {
+    shells().forEach((turn, i) => {
+      const key = keyOf(turn, i);
+      const units = unitsOf(turn);
+      const prev = seen.get(key);
+      if (prev && units.length <= prev.chunks.length) return;   // nothing new here
+      const rec = readTurn(turn, units);
+      if (rec.chunks.length === 0 && !String(rec.fallback || '').trim()) return;   // not rendered
+      seen.set(key, rec);
+    });
+  };
+  const unread = () => shells().filter((turn, i) => !seen.has(keyOf(turn, i))).length;
+
+  // ms-autoscroll-container, or failing that the nearest scrollable ancestor.
+  const scroller = () => {
+    const named = document.querySelector('ms-autoscroll-container');
+    if (named) return named;
+    const first = document.querySelector('ms-chat-turn');
+    for (let p = first && first.parentElement; p; p = p.parentElement) {
+      if (p.scrollHeight > p.clientHeight + 1 && /auto|scroll/.test(getComputedStyle(p).overflowY)) return p;
+    }
+    return null;
+  };
+  // Resolves when the container has been still for 250 ms, or after 600 ms
+  // whatever it is doing. Attributes are not watched: scrolling restyles
+  // everything and says nothing about whether content has arrived.
+  const settle = (el) => new Promise((resolve) => {
+    let quiet = null;
+    const obs = new MutationObserver(() => { clearTimeout(quiet); quiet = setTimeout(finish, 250); });
+    const cap = setTimeout(() => finish(), 600);
+    function finish() { clearTimeout(quiet); clearTimeout(cap); obs.disconnect(); resolve(); }
+    quiet = setTimeout(finish, 250);
+    obs.observe(el, { childList: true, subtree: true, characterData: true });
+  });
+
+  const sweep = { ran: false, steps: 0, ms: 0, unread: 0, timedOut: false };
+  const t0 = Date.now();
+  harvest();
+  const container = unread() > 0 ? scroller() : null;
+  if (container && container.scrollHeight > container.clientHeight + 1) {
+    sweep.ran = true;
+    const startTop = container.scrollTop;
+    const step = Math.max(40, Math.floor(container.clientHeight * 0.8));
+    try {
+      let y = 0;
+      for (let n = 0; n < 1500; n++) {
+        container.scrollTop = y;
+        await settle(container);
+        harvest();
+        sweep.steps++;
+        const max = container.scrollHeight - container.clientHeight;   // grows as turns render
+        if (y >= max) break;
+        // A service worker request is cut off at 5 minutes; stop well short of it.
+        if (Date.now() - t0 > 240000) { sweep.timedOut = true; break; }
+        y = Math.min(y + step, max);
+      }
+    } finally {
+      container.scrollTop = startTop;
+    }
+  }
+
+  const all = shells();
+  const turns = all.map((turn, i) => seen.get(keyOf(turn, i)) || readTurn(turn, unitsOf(turn)));
+  sweep.unread = turns.filter((t) => t.chunks.length === 0 && !String(t.fallback || '').trim()).length;
+  sweep.ms = Date.now() - t0;
+  return { title: document.title || '', turnCount: all.length, turns, sweep };
+}
+
+// Material-icon ligatures arrive as plain words in innerText. GLYPHS are names
+// nobody writes as a line of prose (they carry an underscore); ICON_WORDS adds
+// the two ordinary words the page also renders as icons. They are only stripped
+// where the text is page chrome (see aistudioChunkText): the ends of an
+// attachment card, a thought panel, the header above a code block, a turn nobody
+// recognized. A standalone "docs" or "edit" line is legitimate inside a code
+// block or a list, and removing it there would corrupt the export.
+const AISTUDIO_GLYPHS = new Set([
+  'more_vert', 'chevron_right', 'expand_more', 'expand_less',
+  'content_copy', 'thumb_up', 'thumb_down'
+]);
+const AISTUDIO_ICON_WORDS = new Set(['edit', 'docs'].concat(Array.from(AISTUDIO_GLYPHS)));
+const AISTUDIO_HEADER_RE = /^(User|Model)\s+\d{1,2}:\d{2}\s?(AM|PM)?$/i;            // "User 2:09 PM"
+const AISTUDIO_TOKENS_RE = /^\d[\d.,]*\s*[KkMm]?\s*tokens?$/i;                      // "1,291 tokens"
+const AISTUDIO_THOUGHT_LABEL_RE = /^(Thoughts|(Expand to view|Collapse to hide) model thoughts)$/i;
+
+function aistudioLines(s) {
+  return String(s == null ? '' : s).replace(/\r\n?/g, '\n').split('\n');
+}
+
+// A line made of nothing but words from `set`: "edit", or "edit more_vert" when
+// the option buttons render side by side instead of one per line.
+function aistudioAllIn(set, line) {
+  const words = line.trim().split(/\s+/);
+  return words[0] !== '' && words.every((w) => set.has(w));
+}
+
+function aistudioIsIcon(line) {
+  return aistudioAllIn(AISTUDIO_ICON_WORDS, line);
+}
+
+function aistudioIsGlyph(line) {
+  return aistudioAllIn(AISTUDIO_GLYPHS, line);
+}
+
+// Blank lines off both ends, indentation of the first real line kept (a pasted
+// code snippet may start indented).
+function aistudioTidy(s) {
+  return String(s).replace(/^(?:[ \t]*\n)+/, '').replace(/\s+$/, '');
+}
+
+// "User 2:09 PM" opens a turn's text, possibly under the icon words of the
+// turn's option buttons. Only a header actually found is removed (with the icon
+// words above it); text without one is returned untouched.
+function aistudioDropHeader(lines) {
+  let i = 0;
+  while (i < lines.length && (lines[i].trim() === '' || aistudioIsIcon(lines[i]))) i++;
+  return (i < lines.length && AISTUDIO_HEADER_RE.test(lines[i].trim())) ? lines.slice(i + 1) : lines;
+}
+
+// Chrome at the two ends of a chunk: leading icon words and panel labels,
+// trailing icon words. The middle is content and is never touched.
+function aistudioTrimChrome(lines, labelRe) {
+  let a = 0;
+  let b = lines.length;
+  while (a < b && (lines[a].trim() === '' || aistudioIsIcon(lines[a]) ||
+         (labelRe && labelRe.test(lines[a].trim())))) a++;
+  while (b > a && (lines[b - 1].trim() === '' || aistudioIsIcon(lines[b - 1]))) b--;
+  return lines.slice(a, b);
+}
+
+// A ``` fence around code; longer when the code itself holds a run of backticks.
+function aistudioFence(code, lang) {
+  const body = aistudioTidy(aistudioLines(code).join('\n'));
+  if (!body.trim()) return '';
+  let longest = 0;
+  for (const run of (body.match(/`+/g) || [])) longest = Math.max(longest, run.length);
+  const fence = '`'.repeat(Math.max(3, longest + 1));
+  return fence + (lang || '') + '\n' + body + '\n' + fence;
+}
+
+// Where `needle` fills whole lines of `hay`, from `from` on (-1 if nowhere), so
+// a one-word code block is not mistaken for the same word inside a sentence.
+function aistudioFindOwnLines(hay, needle, from) {
+  if (!needle) return -1;
+  let i = hay.indexOf(needle, from);
+  while (i !== -1) {
+    const end = i + needle.length;
+    if ((i === 0 || hay[i - 1] === '\n') && (end === hay.length || hay[end] === '\n')) return i;
+    i = hay.indexOf(needle, i + 1);
+  }
+  return -1;
+}
+
+// The header chrome of a code block that sits just above its code, in any order:
+// icon-glyph lines ("content_copy", "expand_less") and the language label. A run
+// without a glyph in it is only text, and stays. `head` ends at a line start.
+function aistudioDropHeaderAbove(head, lang) {
+  const lines = head.split('\n');
+  const label = String(lang || '').toLowerCase();
+  let i = lines.length - 2;
+  let glyph = false;
+  while (i >= 0 && lines.length - 2 - i < 6) {
+    const t = lines[i].trim();
+    if (aistudioIsGlyph(t)) glyph = true;
+    else if (!label || t.toLowerCase() !== label) break;
+    i--;
+  }
+  return glyph ? lines.slice(0, i + 1).concat('').join('\n') : head;
+}
+
+// The text of a code block that shows no code: its header and nothing else
+// (glyph lines, and at most one short label line).
+function aistudioHeaderOnly(block) {
+  const lines = aistudioLines(block).map((l) => l.trim()).filter(Boolean);
+  const plain = lines.filter((l) => !aistudioIsGlyph(l));
+  return lines.length > plain.length && plain.length <= 1 && plain.every((l) => l.length <= 30);
+}
+
+// A text chunk's innerText carries its code blocks as bare text. Put them back
+// in fences: replace the block's whole text where it can be found (which also
+// drops the header chrome inside it), else just the code, then clear any header
+// chrome left on the lines above. A block showing only its header is removed; a
+// block that cannot be placed is left alone. Nothing else is touched.
+function aistudioFenceNested(text, blocks) {
+  let out = aistudioLines(text).join('\n');
+  let from = 0;
+  for (const b of (Array.isArray(blocks) ? blocks : [])) {
+    if (!b) continue;
+    const fenced = aistudioFence(b.code, b.lang);
+    let needle = aistudioLines(b.block).join('\n').trim();
+    let at = aistudioFindOwnLines(out, needle, from);
+    if (!fenced) {
+      if (at !== -1 && aistudioHeaderOnly(needle)) {
+        const end = at + needle.length;
+        out = out.slice(0, at) + out.slice(out[end] === '\n' ? end + 1 : end);
+        from = at;
+      }
+      continue;
+    }
+    if (at === -1) {
+      needle = aistudioTidy(aistudioLines(b.code).join('\n'));
+      at = aistudioFindOwnLines(out, needle, from);
+    }
+    if (at === -1) continue;
+    const head = aistudioDropHeaderAbove(out.slice(0, at), b.lang);
+    out = head + fenced + out.slice(at + needle.length);
+    from = head.length + fenced.length;
+  }
+  return out;
+}
+
+// One chunk -> the text it adds to its message ('' = adds nothing).
+function aistudioChunkText(chunk, includeThoughts, first) {
+  if (!chunk || typeof chunk.text !== 'string') return '';
+  if (chunk.kind === 'code') return aistudioFence(chunk.text, chunk.lang);
+
+  let lines = aistudioLines(chunk.text);
+  if (first) lines = aistudioDropHeader(lines);
+
+  if (chunk.kind === 'thought') {
+    if (!includeThoughts) return '';
+    // A collapsed panel is nothing but its own label ("Thoughts / Expand to
+    // view model thoughts / chevron_right"): once that is gone, nothing is
+    // left and the chunk is skipped -- the boilerplate is never exported. An
+    // open panel adds icon glyphs (expand_less, and content_copy from any code
+    // it shows) that can sit anywhere in the body, so those go wherever they stand.
+    const body = aistudioTidy(aistudioTrimChrome(lines, AISTUDIO_THOUGHT_LABEL_RE)
+      .filter((l) => !aistudioIsGlyph(l)).join('\n'));
+    return /[\p{L}\p{N}]/u.test(body) ? '//system//\n' + body + '\nDone' : '';
+  }
+
+  if (chunk.kind === 'prompt') {
+    // An attached file's card: icon word(s), the filename, then its token count.
+    const parts = lines.map((l) => l.trim()).filter(Boolean);
+    if (parts.some((l) => AISTUDIO_TOKENS_RE.test(l))) {
+      const rest = parts.filter((l) => !AISTUDIO_TOKENS_RE.test(l) && !aistudioIsIcon(l));
+      const name = (rest[rest.length - 1] || '')
+        .replace(/\[/g, '(').replace(/\]/g, ')').replace(/\s+/g, ' ').trim();
+      return name ? '[attachment: ' + name + ']' : '[attachment]';
+    }
+    return aistudioTidy(aistudioTrimChrome(lines).join('\n'));
+  }
+
+  return aistudioTidy(aistudioFenceNested(lines.join('\n'), chunk.code));
+}
+
+// A turn with no recognizable chunk: its whole content area, chrome and all.
+// Here (and only here) icon words are removed wherever they stand alone.
+function aistudioFallbackText(text) {
+  const kept = [];
+  for (const line of aistudioDropHeader(aistudioLines(text))) {
+    if (aistudioIsIcon(line)) continue;
+    if (/^(Expand to view|Collapse to hide) model thoughts$/i.test(line.trim())) {
+      if (kept.length && kept[kept.length - 1].trim() === 'Thoughts') kept.pop();
+      continue;
+    }
+    kept.push(line);
+  }
+  return aistudioTidy(kept.join('\n'));
+}
+
+// aistudioReadPage()'s turns -> [{ role: 'user'|'assistant', text }]. One
+// message per turn: its chunks are folded together in page order, thoughts
+// as //system//...Done (the Claude adapter's convention), and a turn left with
+// no text is dropped.
+function aistudioTurnsToMessages(turns, opts) {
+  const includeThoughts = !(opts && opts.includeThoughts === false);
+  const messages = [];
+  for (const turn of (Array.isArray(turns) ? turns : [])) {
+    if (!turn) continue;
+    const r = String(turn.role || '').trim().toLowerCase();
+    const role = r === 'user' ? 'user' : (r === 'model' ? 'assistant' : null);
+    if (!role) continue;
+    const segs = [];
+    if (Array.isArray(turn.chunks) && turn.chunks.length > 0) {
+      turn.chunks.forEach((chunk, i) => segs.push(aistudioChunkText(chunk, includeThoughts, i === 0)));
+    } else if (typeof turn.fallback === 'string') {
+      segs.push(aistudioFallbackText(turn.fallback));
+    }
+    const text = segs.filter((s) => s && s.trim()).join('\n\n');
+    if (text) messages.push({ role, text });
+  }
+  return messages;
+}
+
+// document.title is "<prompt name> | Google AI Studio" (the prompt name is cut
+// short by Google; that is fine). A bare product title means no name yet.
+function aistudioCleanTitle(raw) {
+  const t = String(raw == null ? '' : raw).replace(/\s*\|\s*Google AI Studio\s*$/i, '').trim();
+  return (!t || /^Google AI Studio$/i.test(t)) ? 'Untitled AI Studio' : t;
+}
+
+async function fetchAIStudio(conversationId, token, tabId) {
+  // No API to call: the page itself is the only source, same as Gemini -- but
+  // its list is virtualized, so the page function scrolls it (seconds, not
+  // milliseconds, for a long prompt) and returns once every turn has been seen.
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: aistudioReadPage
+    });
+
+    const page = results && results[0] && results[0].result;
+    if (!page) throw new Error('Could not extract AI Studio conversation');
+    if (page.sweep && page.sweep.unread > 0) {
+      console.warn('[Exporter] AI Studio: ' + page.sweep.unread + ' of ' + page.turnCount +
+        ' turns had no readable content after the scroll sweep' + (page.sweep.timedOut ? ' (timed out)' : ''));
+    }
+    const messages = aistudioTurnsToMessages(page.turns, { includeThoughts: INCLUDE_SYSTEM_TRACES });
+    if (messages.length === 0) {
+      throw new Error(page.turnCount === 0
+        ? 'No messages found: there are no chat turns on this page. Open a saved prompt and try again.'
+        : 'No readable text in the ' + page.turnCount + ' chat turns on this page.');
+    }
+    return { title: aistudioCleanTitle(page.title), messages, platform: 'aistudio' };
+  } catch(err) {
+    throw new Error('AI Studio: ' + err.message);
   }
 }
 
@@ -796,8 +1221,15 @@ async function fetchChatGPTAsset(ref, tabId) {
   return { id: ref.id, name: ref.name || null, ok: false, error: payload.error || 'unknown media failure' };
 }
 
-// Node-only export so the pure tree-walker can be exercised by tests/ against
-// real fixtures. No effect in the service worker (module is undefined there).
+// Node-only export so the pure tree-walker (and the AI Studio text cleaner and
+// page reader) can be exercised by tests/ against real fixtures. No effect in
+// the service worker (module is undefined there).
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { walkChatGPTTree: walkChatGPTTree, fetchRetrying: fetchRetrying };
+  module.exports = {
+    walkChatGPTTree: walkChatGPTTree,
+    fetchRetrying: fetchRetrying,
+    aistudioReadPage: aistudioReadPage,
+    aistudioTurnsToMessages: aistudioTurnsToMessages,
+    aistudioCleanTitle: aistudioCleanTitle
+  };
 }

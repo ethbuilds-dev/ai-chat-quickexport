@@ -14,7 +14,8 @@ const ZipWriter = require(path.join(__dirname, '..', 'zipwriter.js'));
 // background.js exports the pure tree-walker under Node (importScripts is
 // guarded; MediaUtils is require()'d there) so the REAL walker — not a copy —
 // is exercised against fixtures.
-const { walkChatGPTTree, fetchRetrying } = require(path.join(__dirname, '..', 'background.js'));
+const { walkChatGPTTree, fetchRetrying, aistudioReadPage, aistudioTurnsToMessages, aistudioCleanTitle } =
+  require(path.join(__dirname, '..', 'background.js'));
 
 let passed = 0, failed = 0;
 let RETRY_SUITE = Promise.resolve();
@@ -791,6 +792,223 @@ console.log('\n[structural: word ruler wired]');
   check('html export emits marks', pop.indexOf('class=\"wordmark\"') !== -1);
   check('html mark has a style', pop.indexOf('.wordmark {') !== -1);
 }
+// ---- Google AI Studio: page text -> messages -----------------------------
+// aistudioReadPage() runs inside the tab, against a real DOM, so it cannot run
+// here (dry-run it in a live AI Studio tab); what it hands back is plain
+// strings, so the half that interprets them is tested here against
+// fixtures/aistudio-dom.json -- innerText CRAFTED from the DOM facts measured
+// live on 2026-11-01, not a captured dump.
+console.log('\n[ai studio: page text -> messages]');
+{
+  const fx = loadFixture('aistudio-dom.json');
+  const before = JSON.stringify(fx);
+  const turn = (name) => {
+    const t = fx.turns.find(x => x.case === name);
+    if (!t) throw new Error('fixture has no turn ' + name);
+    return t;
+  };
+  const one = (name, opts) => aistudioTurnsToMessages([turn(name)], opts);
+  const text = (name, opts) => (one(name, opts)[0] || {}).text;
+
+  const all = aistudioTurnsToMessages(fx.turns);
+  check('25 turns -> 21 messages (a lone collapsed thought, two unrendered shells and a non-turn are dropped)',
+    all.length === 21, all.length);
+  check('roles: User -> user, Model -> assistant',
+    one('user-plain')[0].role === 'user' && one('model-continuation')[0].role === 'assistant');
+  const iCode = all.findIndex(m => m.text.indexOf('//system//') === 0);
+  check('consecutive turns of one role stay separate messages',
+    iCode !== -1 && all[iCode].role === 'assistant' && all[iCode + 1].text === 'Anything else?' &&
+    all[iCode + 1].role === 'assistant');
+  check('chunks of one turn are folded into ONE message', one('model-thoughts-and-code').length === 1);
+
+  // attachments
+  check('file card -> [attachment: name] line, then the typed text',
+    text('user-file-and-text') ===
+      '[attachment: Generated Document November 01, 2026 - 2:19PM.pdf]\n\nSummarize this in three bullets.',
+    JSON.stringify(text('user-file-and-text')));
+  check('a turn that is only a file card still exports, brackets in the name made safe',
+    text('user-only-attachment') === '[attachment: scan(final).png]', JSON.stringify(text('user-only-attachment')));
+
+  // thoughts
+  check('collapsed Thoughts panel: skipped, boilerplate never exported',
+    text('model-collapsed-thoughts') === '- The report covers Q3 revenue.\n- Costs rose 4%.\n- Margin held at 31%.',
+    JSON.stringify(text('model-collapsed-thoughts')));
+  check('a turn that is nothing but a collapsed panel is dropped', one('model-only-collapsed-thought').length === 0);
+  const full = text('model-thoughts-and-code');
+  check('expanded thoughts: //system// ... Done, before the answer (Claude convention)',
+    full.indexOf('//system//\n**Planning the script**\n') === 0 &&
+    full.indexOf('The folder may not exist.\nDone\n\nHere is the script:') !== -1, JSON.stringify(full.slice(0, 160)));
+  check('panel labels are not part of the thought body',
+    full.indexOf('Collapse to hide model thoughts') === -1 && full.indexOf('Thoughts') === -1 &&
+    full.indexOf('chevron_right') === -1);
+  const noThoughts = text('model-thoughts-and-code', { includeThoughts: false });
+  check('includeThoughts:false leaves the answer and no //system// block',
+    noThoughts.indexOf('//system//') === -1 && noThoughts.indexOf('Here is the script:') === 0);
+
+  // code
+  check('code nested in a text chunk is fenced with its language, header chrome gone',
+    full.indexOf('```python\nfrom pathlib import Path\n\nfor p in sorted(Path(\'docs\').iterdir()):\n    print(p.name)\n```') !== -1 &&
+    full.indexOf('content_copy') === -1 && !/^Python$/m.test(full), JSON.stringify(full));
+  check('a code chunk of its own is fenced, and its standalone docs line survives',
+    full.indexOf('And ls prints:\n\n```\ndocs\nsrc\ntests\n```') !== -1);
+  check('code holding backticks gets a longer fence',
+    text('model-backticks-in-code') === '````python\nprint(\'```\')\n````', JSON.stringify(text('model-backticks-in-code')));
+  check('a one-word code block is fenced where it stands alone, not inside the sentence',
+    text('model-one-word-code-block') === 'Use ls to list files.\n```bash\nls\n```\nThat is all.',
+    JSON.stringify(text('model-one-word-code-block')));
+  check('a code block that cannot be placed leaves the text exactly as it was',
+    text('model-unplaceable-nested-code') === 'Intro\nSome code\nOutro');
+
+  // chrome vs content
+  check('fallback turn: header line and trailing icon words removed',
+    text('user-fallback-header') === 'A follow-up from a layout the reader did not recognize.',
+    JSON.stringify(text('user-fallback-header')));
+  check('fallback turn: icon words above the header, and the Thoughts label, removed',
+    text('model-fallback-icons-above-header') === 'Plain answer.', JSON.stringify(text('model-fallback-icons-above-header')));
+  check('header line leaked into the first chunk is removed',
+    text('user-header-inside-first-chunk') === 'hello');
+  check('icon words standing alone INSIDE a text chunk are content, not chrome',
+    text('user-icon-words-are-content') === 'Which button is which?\nedit\ndocs\nmore_vert');
+  check('the first line keeps its indentation; a whitespace-only chunk adds nothing',
+    text('user-indented-first-line') === '    indented = True\nnot_indented = False');
+  check('CRLF from the page is normalized', text('user-crlf') === 'line one\nline two');
+  check('a turn with an unknown data-turn-role is not a message', one('unknown-role').length === 0);
+  check('no panel label or time header survives anywhere in the export',
+    all.every(m => !/chevron_right|(Expand to view|Collapse to hide) model thoughts/.test(m.text) &&
+      !/^(User|Model)\s+\d{1,2}:\d{2}/m.test(m.text)));
+
+  // a virtualized list: shells the sweep never saw filled add nothing, the rest keep their order
+  check('unrendered shells (no chunks, empty fallback) add nothing',
+    one('model-unread-shell').length === 0 && one('user-unread-shell').length === 0);
+  const iCards = all.findIndex(m => m.text.indexOf('[attachment: Q3 report.pdf]') === 0);
+  check('readable turns on either side of unread shells stay in order',
+    iCards !== -1 && all[iCards + 1].text.indexOf('//system//\n**Weighing options**') === 0);
+  check('a turn of four file cards keeps all four, in order',
+    text('user-four-file-cards') ===
+      '[attachment: Q3 report.pdf]\n\n[attachment: Q3 figures.xlsx]\n\n[attachment: notes.txt]\n\n' +
+      '[attachment: Generated Document November 01, 2026 - 2:19PM.pdf]', JSON.stringify(text('user-four-file-cards')));
+
+  // icon glyphs (content_copy, expand_less, expand_more) where they are page chrome
+  check('glyph lines anywhere in a thought body are chrome',
+    text('model-thought-glyph-lines') ===
+      '//system//\n**Weighing options**\nOption A is cheaper.\nOption B is faster.\nDone\n\nGo with B.',
+    JSON.stringify(text('model-thought-glyph-lines')));
+  check('code-block header lines outside the block are cleared above the fence',
+    text('model-code-header-outside-block') === 'Here is the script:\n\n```python\nprint(\'hi\')\n```\n\nThat is all.',
+    JSON.stringify(text('model-code-header-outside-block')));
+  check('three code blocks, each with a content_copy / expand_less header: all fenced, no header left',
+    text('model-three-code-headers') ===
+      'Step 1:\n```\nnpm install\n```\nStep 2:\n```\nnpm run build\n```\nStep 3:\n```\nnpm test\n```\nDone.',
+    JSON.stringify(text('model-three-code-headers')));
+  check('a collapsed block that shows only its header is removed',
+    text('model-collapsed-code-header-only') === 'Before.\nAfter.', JSON.stringify(text('model-collapsed-code-header-only')));
+  check('the same words standing alone in ordinary prose are content, not chrome',
+    text('model-prose-glyph-lines') === 'Material icon names look like this:\ncontent_copy\nexpand_less\nand so on.');
+  check('no glyph line survives where it was page chrome',
+    ['model-thoughts-and-code', 'model-thought-glyph-lines', 'model-code-header-outside-block',
+     'model-three-code-headers', 'model-collapsed-code-header-only']
+      .every(n => !/^(content_copy|expand_less|expand_more|chevron_right)$/m.test(text(n))));
+
+  // robustness
+  check('the input is not mutated', JSON.stringify(fx) === before);
+  let threw = null, junk = null;
+  try {
+    junk = aistudioTurnsToMessages([null, {}, { role: 'User' }, { role: 'Model', chunks: [null, {}, { kind: 'text' }, { kind: 'text', text: 7 }] }]);
+    aistudioTurnsToMessages(null); aistudioTurnsToMessages(undefined); aistudioTurnsToMessages('x');
+  } catch (e) { threw = e; }
+  check('malformed turns are skipped, never thrown', threw === null && junk.length === 0, threw && threw.message);
+}
+
+console.log('\n[ai studio: title]');
+{
+  check('the site suffix is cut',
+    aistudioCleanTitle('Q3 report review | Google AI Studio') === 'Q3 report review');
+  check('only the final suffix is cut',
+    aistudioCleanTitle('A | B | Google AI Studio') === 'A | B');
+  check('a title without the suffix is left alone', aistudioCleanTitle('Plain name') === 'Plain name');
+  check('a bare product title, or nothing, means untitled',
+    aistudioCleanTitle('Google AI Studio') === 'Untitled AI Studio' &&
+    aistudioCleanTitle('') === 'Untitled AI Studio' && aistudioCleanTitle(null) === 'Untitled AI Studio');
+}
+
+// aistudioReadPage is serialized with toString() and run in the page, so it
+// must not lean on anything declared elsewhere in background.js. An identifier
+// that is out of scope in the page only fails THERE, at export time -- so both
+// halves of that are checked here: no outside names in the source, and a real
+// run in a context that holds nothing but `document`. It is async (the list is
+// virtualized and has to be scrolled), hence the promise chain.
+RETRY_SUITE = RETRY_SUITE.then(async () => {
+  console.log('\n[ai studio: page reader is self-contained, and sweeps]');
+  const vm = require('vm');
+  const src = aistudioReadPage.toString();
+  const outside = ['INCLUDE_SYSTEM_TRACES', 'MediaUtils', 'chrome', 'AISTUDIO_', 'aistudioTurnsToMessages',
+    'aistudioChunkText', 'aistudioLines', 'aistudioTidy', 'aistudioFence'];
+  const leaks = outside.filter(n => src.indexOf(n) !== -1);
+  check('names no other symbol of background.js', leaks.length === 0, leaks.join(','));
+  check('is async: executeScript awaits the promise it returns', /^async function aistudioReadPage/.test(src));
+  // the calls themselves, not a mention in a comment
+  check('sweeps the virtualized list: the named scroller, settled by a MutationObserver',
+    src.indexOf("querySelector('ms-autoscroll-container')") !== -1 && src.indexOf('new MutationObserver(') !== -1);
+  check('puts the scroll position back whatever happens', /finally\s*\{\s*container\.scrollTop = startTop;/.test(src));
+  let page = null, ranErr = null;
+  try {
+    page = await vm.runInNewContext('(' + src + ')()',
+      { document: { title: 'Empty | Google AI Studio', querySelectorAll: () => [] } });
+  } catch (e) { ranErr = e; }
+  check('runs with only `document` in scope; empty page -> no turns, no sweep',
+    !ranErr && page.turnCount === 0 && page.turns.length === 0 && page.title === 'Empty | Google AI Studio' &&
+    page.sweep.ran === false, ranErr ? ranErr.message : JSON.stringify(page));
+});
+
+// ---- structural: AI Studio is wired end to end ------------------------------
+console.log('\n[structural: ai studio wired]');
+{
+  const vm = require('vm');
+  const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'manifest.json'), 'utf8'));
+  const bg = fs.readFileSync(path.join(__dirname, '..', 'background.js'), 'utf8');
+  const pop = fs.readFileSync(path.join(__dirname, '..', 'popup.js'), 'utf8').replace(/\r\n/g, '\n');
+
+  check('manifest asks for aistudio.google.com',
+    manifest.host_permissions.indexOf('https://aistudio.google.com/*') !== -1);
+  check('manifest description names AI Studio and fits the store limit of 132 characters',
+    /AI Studio/.test(manifest.description) && manifest.description.length <= 132, manifest.description.length);
+  check('token capture knows aistudio (the "no token" guard would reject it)',
+    bg.indexOf("plat === 'aistudio'") !== -1);
+  check('fetchConversation routes aistudio to its adapter',
+    /platform === 'aistudio'\)\s*\{\s*return fetchAIStudio\(conversationId, token, tabId\);/.test(bg));
+  check('the adapter injects the page reader and respects the thoughts switch',
+    bg.indexOf('func: aistudioReadPage') !== -1 && bg.indexOf('includeThoughts: INCLUDE_SYSTEM_TRACES') !== -1);
+  check('popup names Google AI Studio in all three platform lists',
+    (pop.match(/Google AI Studio/g) || []).length >= 3, (pop.match(/Google AI Studio/g) || []).length);
+
+  // popup.js cannot be required (chrome.* at load); detectPlatform is pure, so
+  // lift it out of the source and run it.
+  const m = /function detectPlatform\(url\) \{\n[\s\S]*?\n\}\n/.exec(pop);
+  check('detectPlatform can be lifted from popup.js', !!m);
+  if (m) {
+    const detectPlatform = vm.runInNewContext(m[0] + '\ndetectPlatform');
+    const ai = detectPlatform('https://aistudio.google.com/prompts/14aF6keJPs1NIrRjh4MftkVSefpJHIC3b?model=gemini-3-pro-preview');
+    check('AI Studio prompt url -> platform, filename name, Drive file id',
+      !!ai && ai.platform === 'aistudio' && ai.name === 'AIStudio' &&
+      ai.conversationId === '14aF6keJPs1NIrRjh4MftkVSefpJHIC3b', JSON.stringify(ai));
+    const app = detectPlatform('https://aistudio.google.com/app/prompts/abc_DEF-123');
+    check('/app/prompts/<id> is accepted too', !!app && app.platform === 'aistudio' && app.conversationId === 'abc_DEF-123');
+    check('AI Studio pages that are not a prompt are not a conversation',
+      detectPlatform('https://aistudio.google.com/') === null &&
+      detectPlatform('https://aistudio.google.com/apikey') === null &&
+      detectPlatform('https://aistudio.google.com/prompts') === null);
+    const others = {
+      'https://chatgpt.com/c/0123abcd-ef01-2345-6789-abcdef012345': 'chatgpt',
+      'https://claude.ai/chat/0123abcd-ef01-2345-6789-abcdef012345': 'claude',
+      'https://gemini.google.com/app/0123abcdef012345': 'gemini',
+      'https://grok.com/c/0123abcd-ef01-2345-6789-abcdef012345': 'grok'
+    };
+    const wrong = Object.keys(others).filter(u => { const d = detectPlatform(u); return !d || d.platform !== others[u]; });
+    check('the four existing platforms are still detected', wrong.length === 0, wrong.join(' '));
+    check('an unrelated site is not a platform', detectPlatform('https://example.com/prompts/abc') === null);
+  }
+}
+
 // ---- summary -----------------------------------------------------------
 RETRY_SUITE.then(() => {
   console.log('\n' + passed + ' passed, ' + failed + ' failed');

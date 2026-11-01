@@ -8,6 +8,10 @@ dashboard: `version="1.5.8"`, `status="ok"`, `..._1_5_8_0.crx`, 45,919 bytes,
 sha256 `6330d648…`. What follows stays as the record of what was submitted, and
 as the template for the next version.*
 
+*2026-11-01: the platform lists, the summary line and the permission texts below
+already include Google AI Studio (1.7.0 - in the working tree, NOT yet
+submitted). The 1.5.8 wording they replace is in git history.*
+
 ---
 
 ## 1. Store listing
@@ -15,8 +19,8 @@ as the template for the next version.*
 ### Name
 AI Chat QuickExport
 
-### Summary (132 characters max — this one is 128)
-Export full ChatGPT, Claude, Gemini & Grok conversations - text and images - as Markdown, JSON or one self-contained HTML file.
+### Summary (132 characters max — this one is 130)
+Export full ChatGPT, Claude, Gemini, Grok & AI Studio chats - text and images - as Markdown, JSON or one self-contained HTML file.
 
 ### Category
 Productivity → Workflow & Planning
@@ -36,6 +40,7 @@ AI Chat QuickExport reads your conversation the same way the page itself does, s
 - **Claude** — full history, including images. (Non-image uploads are listed but cannot be downloaded; see "Known limits" below.)
 - **Grok** — full history, including images you uploaded and images Grok generated for you, each with the prompt that made it.
 - **Gemini** — text only, read from the page. Best effort; see "Known limits".
+- **Google AI Studio** — text only, read from the page; files you attached are named, not saved. Best effort; see "Known limits".
 
 **Export formats**
 
@@ -55,7 +60,8 @@ A conversation that contains images exports as a .zip: the document plus an `ass
 
 **Known limits — stated up front, because finding them yourself is worse**
 
-- **Gemini is best effort.** Google offers no clean conversation API, so Gemini is read from the rendered page. That means: text only (no image export), long conversations must be scrolled to the top first so every turn is actually in the page, and a Google front-end redesign can break it without warning. It is included because a text transcript is better than none — not because it is on par with the other three.
+- **Gemini is best effort.** Google offers no clean conversation API, so Gemini is read from the rendered page. That means: text only (no image export), long conversations must be scrolled to the top first so every turn is actually in the page, and a Google front-end redesign can break it without warning. It is included because a text transcript is better than none — not because it is on par with the API-based platforms.
+- **Google AI Studio is best effort too.** It has no export API either, so it is read from the rendered page: text only (no image export; files you attached are named in the message, not saved), the text is what the page shows rather than the Markdown behind it, the model's "Thoughts" are included only while their panel is open, its list keeps only the turns near the screen filled in so the extension scrolls the conversation top to bottom and back while it reads (tens of seconds for 120 turns), and a Google front-end change can break it without warning.
 - **Grok media coverage may be incomplete.** Grok's conversation format is undocumented and has changed more than once. Every shape this version handles was measured against live conversations: uploaded files, generated-image cards, and web-search image cards. A shape we have not seen yet may still export as text without its picture. If that happens, the export says so rather than quietly dropping it.
 - **Images that Grok returned from a web search are exported as links, not files.** They are other people's pictures on other people's sites; bundling them would mean asking for permission to read every website you visit, which this extension will never do. The export keeps the title, the source site and both links.
 - **Claude non-image uploads cannot be retrieved.** Documents you uploaded into Claude are stored in a form the site does not serve back; the export names them honestly instead of pretending they failed to download.
@@ -91,12 +97,12 @@ AI Chat QuickExport does one thing: it saves the conversation you are currently 
 Used to read the URL and title of the tab you are on, at the moment you click the extension, in order to identify which platform and which conversation to export and to show you its name before you commit. No other tab is ever read.
 
 **`scripting`**
-Two uses, both scoped to the conversation tab you clicked from, and both only while an export runs. (1) The conversation itself: ChatGPT and Gemini are read from inside the page — ChatGPT because its servers reject an identical request made from the extension's background context, Gemini because there is no API and the transcript exists only as rendered DOM. (2) ChatGPT image data: its image URLs are signed and only honoured for a request originating in the page. Nothing is injected into pages you have not asked to export, and no script persists after the export finishes.
+Two uses, both scoped to the conversation tab you clicked from, and both only while an export runs. (1) The conversation itself: ChatGPT, Gemini and Google AI Studio are read from inside the page — ChatGPT because its servers reject an identical request made from the extension's background context, Gemini and AI Studio because there is no API and the transcript exists only as rendered DOM (on AI Studio the same script also scrolls the conversation top to bottom and back, because the page keeps only the turns near the screen rendered). (2) ChatGPT image data: its image URLs are signed and only honoured for a request originating in the page. Nothing is injected into pages you have not asked to export, and no script persists after the export finishes.
 
 **`storage`**
 Two small records, both local to your browser, both yours. Sync storage keeps the two speaker labels you choose (e.g. "USER" / "ASSISTANT"). Local storage keeps, per conversation, the filename you last typed and the last success message, so reopening the popup does not lose your place; those records are capped at the 200 most recent conversations and expire after 90 days. No conversation content is stored.
 
-**Host permission — `https://chatgpt.com/*`, `https://chat.openai.com/*`, `https://claude.ai/*`, `https://gemini.google.com/*`, `https://grok.com/*`, `https://x.com/*`**
+**Host permission — `https://chatgpt.com/*`, `https://chat.openai.com/*`, `https://claude.ai/*`, `https://gemini.google.com/*`, `https://aistudio.google.com/*`, `https://grok.com/*`, `https://x.com/*`**
 These are the platforms the extension exports from. Access is needed to read the conversation you asked for, using your existing logged-in session — the same session the page itself uses. The extension is inert on every other site.
 
 **Host permission — `https://*.oaiusercontent.com/*`**
@@ -130,6 +136,13 @@ Between the published 1.4.0 and this 1.5.8, two host permissions are added — `
 **Version note for the listing's "What's new":**
 
 > 1.5 exports the pictures too. A conversation with images now saves as a .zip — the document plus an `assets/` folder whose filenames say which message each image belonged to — or as one self-contained HTML page with the images embedded. Grok's uploaded and generated images are included, each generated one carrying its prompt. Because images live on separate hosts, this version asks for two new host permissions and Chrome will ask you to approve them once. Gemini remains text-only and best effort.
+
+**1.7.0 adds one more host permission, and the same thing happens again.**
+`https://aistudio.google.com/*` is what lets the extension read a Google AI Studio prompt, so every existing user will see "needs permission" once after the update and must click it. Say so in "What's new" and in the release notes, as above.
+
+**Version note for the 1.7.0 listing's "What's new":**
+
+> 1.7.0 adds Google AI Studio: prompts at aistudio.google.com now export to Markdown, JSON or HTML - text only, best effort, with attached files named and the model's thoughts included when their panel is open; it scrolls the conversation by itself while it reads. It needs one new host permission, for aistudio.google.com, and Chrome will ask you to approve it once.
 
 ---
 

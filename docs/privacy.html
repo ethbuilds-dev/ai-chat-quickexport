@@ -17,22 +17,22 @@ a{color:#c4956a}
 </head>
 <body>
 <h1>Privacy Policy</h1>
-<p class="date">AI Chat QuickExport — Last updated: August 23, 2026 (version 1.5.8)</p>
+<p class="date">AI Chat QuickExport — Last updated: November 1, 2026 (version 1.7.0)</p>
 
 <h2>What data we collect</h2>
 <p>None. AI Chat QuickExport does not collect, store, transmit, or share any user data.</p>
 
 <h2>How the extension works</h2>
-<p>When you click export, the extension reads the current conversation from the AI platform you are viewing (ChatGPT, Claude, Gemini, or Grok). The conversation data is processed entirely within your browser and saved as a file to your local computer. No data is sent to any external server.</p>
+<p>When you click export, the extension reads the current conversation from the AI platform you are viewing (ChatGPT, Claude, Gemini, Grok, or Google AI Studio). The conversation data is processed entirely within your browser and saved as a file to your local computer. No data is sent to any external server.</p>
 
 <h2>Authentication tokens</h2>
 <p>To access your full conversation history, the extension temporarily captures authentication tokens from the AI platform's existing browser session. These tokens are held in browser memory only for the duration of the export request and are never stored to disk, transmitted externally, or logged.</p>
 
 <h2>Permissions used</h2>
 <p><strong>activeTab</strong> — To read the URL and title of the tab you clicked from, so the extension knows which platform and which conversation to export, and can show you the target before you commit to it.</p>
-<p><strong>scripting</strong> — To run the conversation fetch inside the page you are exporting. ChatGPT's servers reject an identical request made from the extension's background context, and Gemini has no API at all — its transcript exists only as rendered page content. The same mechanism fetches ChatGPT's signed image URLs, which are only honoured for a request originating in the page. Nothing is injected into pages you have not asked to export, and nothing persists after the export finishes.</p>
+<p><strong>scripting</strong> — To run the conversation fetch inside the page you are exporting. ChatGPT's servers reject an identical request made from the extension's background context, and Gemini and Google AI Studio have no API at all — their transcripts exist only as rendered page content. Google AI Studio keeps only the turns near the screen filled in, so there the same mechanism also scrolls the conversation from top to bottom and back, to have every turn rendered before it is read. The same mechanism fetches ChatGPT's signed image URLs, which are only honoured for a request originating in the page. Nothing is injected into pages you have not asked to export, and nothing persists after the export finishes.</p>
 <p><strong>storage</strong> — Two small local records. Your speaker labels (e.g. custom names for user and assistant) are kept in Chrome's sync storage. Per conversation, the filename you last typed and the last success message are kept in Chrome's local storage, so that reopening the popup does not lose your place; those records are capped at the 200 most recent conversations and expire after 90 days. No conversation content is stored.</p>
-<p><strong>Host permissions</strong> (chatgpt.com, chat.openai.com, claude.ai, gemini.google.com, grok.com, x.com) — Required to read conversation data on these specific platforms, using the session you are already logged into. The extension is inert everywhere else.</p>
+<p><strong>Host permissions</strong> (chatgpt.com, chat.openai.com, claude.ai, gemini.google.com, aistudio.google.com, grok.com, x.com) — Required to read conversation data on these specific platforms, using the session you are already logged into. The extension is inert everywhere else.</p>
 <p><strong>Asset host permissions</strong> (*.oaiusercontent.com, assets.grok.com) — The hosts that serve ChatGPT's and Grok's images and attachments. Required to download the pictures in a conversation so they can be packed into the export beside it. Nothing is ever uploaded to these hosts.</p>
 <p><strong>Remote code</strong> — None. The extension executes no remotely hosted code; all of its logic ships inside the package.</p>
 
@@ -40,7 +40,7 @@ a{color:#c4956a}
 <p>None. The extension makes no network request to any server other than the AI platform you are actively exporting from, and the platform's own asset hosts when a conversation contains images. There is no analytics, no telemetry, no error reporting, and no server belonging to this extension — there is no such server.</p>
 
 <h2>Known limits</h2>
-<p>Stated here as well as in the listing, because a limit found by surprise is worse than one written down. Gemini is read from the page rather than an API: text only, and long conversations must be scrolled to the top before exporting. Grok's conversation format is undocumented, so media coverage may be incomplete on shapes not yet observed; when something cannot be fetched, the export says so. Images that Grok returned from a web search are exported as links rather than files, deliberately — bundling them would require permission to read every site you visit. Documents uploaded into Claude are stored in a form the site does not serve back, and are named in the export as present-but-unavailable.</p>
+<p>Stated here as well as in the listing, because a limit found by surprise is worse than one written down. Gemini is read from the page rather than an API: text only, and long conversations must be scrolled to the top before exporting. Google AI Studio is also read from the page: text only, attached files are named but not saved, a long prompt takes tens of seconds because the page has to be scrolled, and a change on Google's side can break it. Grok's conversation format is undocumented, so media coverage may be incomplete on shapes not yet observed; when something cannot be fetched, the export says so. Images that Grok returned from a web search are exported as links rather than files, deliberately — bundling them would require permission to read every site you visit. Documents uploaded into Claude are stored in a form the site does not serve back, and are named in the export as present-but-unavailable.</p>
 
 <h2>Data retention</h2>
 <p>Your speaker labels, in Chrome's sync storage, until you change them.</p>

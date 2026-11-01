@@ -1,6 +1,6 @@
 # AI Chat QuickExport
 
-Export full conversations from ChatGPT, Claude, Gemini & Grok — every message, every turn, one click.
+Export full conversations from ChatGPT, Claude, Gemini, Grok & Google AI Studio — every message, every turn, one click.
 
 ## Why
 
@@ -16,6 +16,7 @@ QuickExport uses each platform's internal API to fetch your **complete** convers
 | Claude | Internal API | ✅ full | ✅ | non-image uploads are listed, not downloadable |
 | Grok | Internal API | ✅ full | ⚠️ mostly | your uploads + generated images (with prompts); search images by link |
 | Gemini | DOM extraction | ⚠️ best effort | ❌ | text only; scroll to the top first |
+| Google AI Studio | DOM extraction | ⚠️ best effort | ❌ | text only; attached files are named, not saved |
 
 ## Coverage and limits
 
@@ -26,7 +27,22 @@ read from the rendered page. Consequences, all real: **text only — no image
 export**; a long conversation must be **scrolled to the top first**, because turns
 that were never rendered are not in the page to read; and a front-end redesign at
 Google can break the extraction without warning. Gemini is included because a text
-transcript beats no transcript — not because it is on par with the other three.
+transcript beats no transcript — not because it is on par with the API-based
+platforms.
+
+**Google AI Studio is best effort, for the same reason.** There is no export API,
+so it is read from the rendered page: **text only**. Files you attached are named
+in the message (`[attachment: report.pdf]`) but not saved, and images are not
+exported. The text is what the page shows, not the Markdown behind it, so bold,
+headings and list markers may not survive. The model's "Thoughts" are exported,
+as `//system//` ... `Done` blocks like Claude's, only while their panel is open
+on the page; a collapsed panel has nothing to read and is skipped. And the page
+keeps only the turns near the screen filled in: 15 to 19 of the 120 in the prompt
+this was built against. So the extension scrolls the conversation from top to
+bottom to read it, then puts it back where it was - tens of seconds for that
+prompt, longer for a longer one, with the popup saying "Extracting" the whole
+time. Keep the popup open until it finishes. A conversation whose turns are all
+already rendered is read at once and never scrolled.
 
 **Grok media may be incomplete.** Grok's conversation format is undocumented and
 has changed more than once. Every shape this version handles was measured against
@@ -135,14 +151,16 @@ No data collection. No external servers. No tracking. Everything local.
   platform and which conversation, and to show you the target before you commit.
 - `scripting` — run the fetch inside the conversation page for ChatGPT (its
   servers reject the same request made from the extension's background context)
-  and for Gemini (no API; the transcript exists only as DOM), plus ChatGPT's
-  signed image URLs, which are only honoured from the page. Nothing is injected
-  into pages you did not ask to export.
+  and for Gemini and Google AI Studio (no API; the transcript exists only as
+  DOM; on AI Studio it also scrolls the conversation from top to bottom and
+  back, so that every turn is rendered before it is read), plus ChatGPT's
+  signed image URLs, which are only honoured from the page. Nothing is
+  injected into pages you did not ask to export.
 - `storage` — your two speaker labels (sync), and per conversation the filename
   you last typed plus the last success line (local), so reopening the popup does
   not lose your place. Capped at 200 conversations, expiring after 90 days. **No
   conversation content is stored.**
-- Host permissions for the four platforms — to read your conversation using the
+- Host permissions for the five platforms — to read your conversation using the
   session you are already logged into.
 - `*.oaiusercontent.com` and `assets.grok.com` — the hosts that serve ChatGPT's
   and Grok's images. Needed to download the pictures into the export. Nothing is
@@ -156,8 +174,24 @@ the platform they came from.
 Chrome disables an extension whose update requests new hosts until you approve
 them. You will see "needs permission" once. That is the update, not a fault.
 
+**Note when updating to 1.7.0:** `aistudio.google.com` is a new host permission,
+so the same one-time "needs permission" appears. An unpacked copy stays disabled
+after a reload until you accept it.
+
 ## Changelog
 
+- **1.7.0** - Google AI Studio. Prompts at aistudio.google.com/prompts/... now
+  export like the other platforms, to Markdown, JSON or HTML. AI Studio has no
+  export API, so, like Gemini, it is read from the rendered page: text only.
+  Files attached to a turn are named in it (`[attachment: report.pdf]`), code is
+  fenced, and the model's "Thoughts" come out as the same `//system//` ... `Done`
+  blocks as Claude's when their panel is open. AI Studio's list is virtualized
+  (only the turns near the screen hold content), so the extension scrolls the
+  conversation top to bottom while it reads and puts it back: tens of seconds
+  for 120 turns, no scrolling at all when every turn is already rendered. Adds the
+  https://aistudio.google.com/* host permission, which is what makes reading the
+  page possible - Chrome shows "needs permission" once on update, as it did for
+  the asset hosts in 1.5.
 - **1.6.0** - Word marks. Exports now carry a `— 10,000 words —` mark at every
   10k, inline in Markdown and HTML; JSON gains `words_so_far` on each message
   and a `word_milestones` list. This exists because a user who writes with two

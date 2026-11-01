@@ -1,0 +1,342 @@
+{
+  "comment": "Synthetic output of aistudioReadPage() for a Google AI Studio prompt: one record per ms-chat-turn, one chunk per ms-text-chunk / ms-code-block / ms-thought-chunk / bare ms-prompt-chunk, text = the element's innerText. The strings are CRAFTED from DOM facts measured live on aistudio.google.com/prompts/<id> on 2026-11-01 (role in data-turn-role, 'User 2:09 PM' header line, icon words 'edit'/'more_vert'/'chevron_right'/'docs', the collapsed 'Thoughts / Expand to view model thoughts / chevron_right' panel, a file card 'docs / docs / <name>.pdf / 1,291 tokens') - NOT a captured dump. Turns with no chunks and an empty fallback stand for shells of the virtualized list that no scroll position ever rendered (the page keeps only ~15 of 120 turns filled). Where the real markup was not seen (code blocks nested inside a text chunk, an expanded thought panel) the shape is INFERRED and covered both ways. `case` is a label for the tests; the cleaner ignores it.",
+  "title": "Q3 report review | Google AI Studio",
+  "turnCount": 25,
+  "sweep": {
+    "ran": true,
+    "steps": 76,
+    "ms": 23001,
+    "unread": 2,
+    "timedOut": false
+  },
+  "turns": [
+    {
+      "case": "user-file-and-text",
+      "role": "User",
+      "chunks": [
+        {
+          "kind": "prompt",
+          "text": "docs\ndocs\nGenerated Document November 01, 2026 - 2:19PM.pdf\n1,291 tokens"
+        },
+        {
+          "kind": "text",
+          "text": "Summarize this in three bullets."
+        }
+      ]
+    },
+    {
+      "case": "model-collapsed-thoughts",
+      "role": "Model",
+      "chunks": [
+        {
+          "kind": "thought",
+          "text": "Thoughts\nExpand to view model thoughts\nchevron_right"
+        },
+        {
+          "kind": "text",
+          "text": "- The report covers Q3 revenue.\n- Costs rose 4%.\n- Margin held at 31%."
+        }
+      ]
+    },
+    {
+      "case": "user-plain",
+      "role": "User",
+      "chunks": [
+        {
+          "kind": "text",
+          "text": "Now write a Python script that lists the docs folder, and show me what ls prints."
+        }
+      ]
+    },
+    {
+      "case": "model-thoughts-and-code",
+      "role": "Model",
+      "chunks": [
+        {
+          "kind": "thought",
+          "text": "Thoughts\nCollapse to hide model thoughts\nchevron_right\n**Planning the script**\nI will use pathlib so it works on every OS.\n\n**Edge cases**\nThe folder may not exist."
+        },
+        {
+          "kind": "text",
+          "text": "Here is the script:\n\nPython\ncontent_copy\nfrom pathlib import Path\n\nfor p in sorted(Path('docs').iterdir()):\n    print(p.name)\n\nRun it from the project root.",
+          "code": [
+            {
+              "block": "Python\ncontent_copy\nfrom pathlib import Path\n\nfor p in sorted(Path('docs').iterdir()):\n    print(p.name)",
+              "code": "from pathlib import Path\n\nfor p in sorted(Path('docs').iterdir()):\n    print(p.name)",
+              "lang": "python"
+            }
+          ]
+        },
+        {
+          "kind": "text",
+          "text": "And ls prints:"
+        },
+        {
+          "kind": "code",
+          "text": "docs\nsrc\ntests",
+          "lang": ""
+        }
+      ]
+    },
+    {
+      "case": "model-continuation",
+      "role": "Model",
+      "chunks": [
+        {
+          "kind": "text",
+          "text": "Anything else?"
+        }
+      ]
+    },
+    {
+      "case": "user-fallback-header",
+      "role": "User",
+      "chunks": [],
+      "fallback": "User 2:09 PM\nA follow-up from a layout the reader did not recognize.\nedit\nmore_vert\nedit more_vert"
+    },
+    {
+      "case": "model-fallback-icons-above-header",
+      "role": "Model",
+      "chunks": [],
+      "fallback": "edit more_vert\nModel 2:10 PM\nPlain answer.\nThoughts\nExpand to view model thoughts\nchevron_right"
+    },
+    {
+      "case": "model-only-collapsed-thought",
+      "role": "Model",
+      "chunks": [
+        {
+          "kind": "thought",
+          "text": "Thoughts\nExpand to view model thoughts\nchevron_right"
+        }
+      ]
+    },
+    {
+      "case": "unknown-role",
+      "role": "System",
+      "chunks": [
+        {
+          "kind": "text",
+          "text": "This is not a conversation turn."
+        }
+      ]
+    },
+    {
+      "case": "user-only-attachment",
+      "role": "User",
+      "chunks": [
+        {
+          "kind": "prompt",
+          "text": "image\nimage\nscan[final].png\n258 tokens"
+        }
+      ]
+    },
+    {
+      "case": "user-header-inside-first-chunk",
+      "role": "User",
+      "chunks": [
+        {
+          "kind": "text",
+          "text": "User 2:09 PM\nhello"
+        }
+      ]
+    },
+    {
+      "case": "user-icon-words-are-content",
+      "role": "User",
+      "chunks": [
+        {
+          "kind": "text",
+          "text": "Which button is which?\nedit\ndocs\nmore_vert"
+        }
+      ]
+    },
+    {
+      "case": "model-backticks-in-code",
+      "role": "Model",
+      "chunks": [
+        {
+          "kind": "code",
+          "text": "print('```')",
+          "lang": "python"
+        }
+      ]
+    },
+    {
+      "case": "user-crlf",
+      "role": "User",
+      "chunks": [
+        {
+          "kind": "text",
+          "text": "line one\r\nline two"
+        }
+      ]
+    },
+    {
+      "case": "model-unplaceable-nested-code",
+      "role": "Model",
+      "chunks": [
+        {
+          "kind": "text",
+          "text": "Intro\nSome code\nOutro",
+          "code": [
+            {
+              "block": "zzz",
+              "code": "qqq",
+              "lang": "js"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case": "model-one-word-code-block",
+      "role": "Model",
+      "chunks": [
+        {
+          "kind": "text",
+          "text": "Use ls to list files.\nls\nThat is all.",
+          "code": [
+            {
+              "block": "ls",
+              "code": "ls",
+              "lang": "bash"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case": "user-indented-first-line",
+      "role": "User",
+      "chunks": [
+        {
+          "kind": "text",
+          "text": "    indented = True\nnot_indented = False"
+        },
+        {
+          "kind": "text",
+          "text": "  \n "
+        }
+      ]
+    },
+    {
+      "case": "user-four-file-cards",
+      "role": "User",
+      "chunks": [
+        {
+          "kind": "prompt",
+          "text": "docs\ndocs\nQ3 report.pdf\n1,291 tokens"
+        },
+        {
+          "kind": "prompt",
+          "text": "docs\ndocs\nQ3 figures.xlsx\n8,044 tokens"
+        },
+        {
+          "kind": "prompt",
+          "text": "docs\ndocs\nnotes.txt\n312 tokens"
+        },
+        {
+          "kind": "prompt",
+          "text": "docs\ndocs\nGenerated Document November 01, 2026 - 2:19PM.pdf\n1,291 tokens"
+        }
+      ]
+    },
+    {
+      "case": "model-unread-shell",
+      "role": "Model",
+      "chunks": [],
+      "fallback": ""
+    },
+    {
+      "case": "user-unread-shell",
+      "role": "User",
+      "chunks": [],
+      "fallback": ""
+    },
+    {
+      "case": "model-thought-glyph-lines",
+      "role": "Model",
+      "chunks": [
+        {
+          "kind": "thought",
+          "text": "Thoughts\nCollapse to hide model thoughts\nexpand_less\n**Weighing options**\nOption A is cheaper.\ncontent_copy\nOption B is faster.\nexpand_more"
+        },
+        {
+          "kind": "text",
+          "text": "Go with B."
+        }
+      ]
+    },
+    {
+      "case": "model-code-header-outside-block",
+      "role": "Model",
+      "chunks": [
+        {
+          "kind": "text",
+          "text": "Here is the script:\n\nPython\ncontent_copy\nexpand_less\nprint('hi')\n\nThat is all.",
+          "code": [
+            {
+              "block": "print('hi')",
+              "code": "print('hi')",
+              "lang": "python"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case": "model-three-code-headers",
+      "role": "Model",
+      "chunks": [
+        {
+          "kind": "text",
+          "text": "Step 1:\ncontent_copy\nexpand_less\nnpm install\nStep 2:\ncontent_copy\nexpand_less\nnpm run build\nStep 3:\ncontent_copy\nexpand_less\nnpm test\nDone.",
+          "code": [
+            {
+              "block": "content_copy\nexpand_less\nnpm install",
+              "code": "npm install",
+              "lang": ""
+            },
+            {
+              "block": "content_copy\nexpand_less\nnpm run build",
+              "code": "npm run build",
+              "lang": ""
+            },
+            {
+              "block": "content_copy\nexpand_less\nnpm test",
+              "code": "npm test",
+              "lang": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case": "model-prose-glyph-lines",
+      "role": "Model",
+      "chunks": [
+        {
+          "kind": "text",
+          "text": "Material icon names look like this:\ncontent_copy\nexpand_less\nand so on."
+        }
+      ]
+    },
+    {
+      "case": "model-collapsed-code-header-only",
+      "role": "Model",
+      "chunks": [
+        {
+          "kind": "text",
+          "text": "Before.\nPython\ncontent_copy\nexpand_more\nAfter.",
+          "code": [
+            {
+              "block": "Python\ncontent_copy\nexpand_more",
+              "code": "",
+              "lang": "python"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

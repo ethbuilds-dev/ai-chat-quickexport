@@ -21,7 +21,7 @@ a{color:#c4956a}
 </head>
 <body>
 <h1>AI Chat QuickExport</h1>
-<p class="subtitle">Export full conversations from ChatGPT, Claude, Gemini & Grok — text and images — in one click.</p>
+<p class="subtitle">Export full conversations from ChatGPT, Claude, Gemini, Grok & Google AI Studio — text and images — in one click.</p>
 
 <p>AI platforms keep breaking their export features. QuickExport reads your conversation the way the page itself does, so you get the whole thing — including conversations with thousands of turns, where copy-paste and print give up.</p>
 
@@ -30,6 +30,7 @@ a{color:#c4956a}
 <div class="platform">Claude</div>
 <div class="platform">Grok</div>
 <div class="platform">Gemini</div>
+<div class="platform">Google AI Studio</div>
 </div>
 
 <h2>Export formats</h2>
@@ -39,7 +40,7 @@ a{color:#c4956a}
 <p>A conversation with images saves as a .zip: the document plus an <code>assets/</code> folder whose filenames say which message each image belonged to (<code>msg012-img1.png</code>), so a picture can always be matched back to where it sat. Images are fetched one at a time with a progress bar, so a conversation with hundreds of them exports as reliably as one with two. Text-only conversations still save as a single plain file.</p>
 
 <h2>What it does not do</h2>
-<p>Written here rather than left to be discovered. <strong>Gemini is best effort</strong> — Google offers no conversation API, so Gemini is read from the rendered page: text only, and long conversations must be scrolled to the top first. <strong>Grok media may be incomplete</strong> — its format is undocumented and changes; every shape handled here was measured on live conversations, and anything the extension cannot fetch is named in the export instead of dropped. <strong>Images Grok returned from a web search are exported as links, not files</strong> — they belong to other sites, and bundling them would mean asking for permission to read every site you visit. <strong>Documents uploaded into Claude cannot be downloaded back</strong>; they are listed as present-but-unavailable.</p>
+<p>Written here rather than left to be discovered. <strong>Gemini is best effort</strong> — Google offers no conversation API, so Gemini is read from the rendered page: text only, and long conversations must be scrolled to the top first. <strong>Google AI Studio is best effort too</strong> — it is read from the rendered page as well: text only, with attached files named rather than saved; the extension scrolls the conversation by itself to read it (tens of seconds for 120 turns); and a change on Google's side can break it. <strong>Grok media may be incomplete</strong> — its format is undocumented and changes; every shape handled here was measured on live conversations, and anything the extension cannot fetch is named in the export instead of dropped. <strong>Images Grok returned from a web search are exported as links, not files</strong> — they belong to other sites, and bundling them would mean asking for permission to read every site you visit. <strong>Documents uploaded into Claude cannot be downloaded back</strong>; they are listed as present-but-unavailable.</p>
 
 <h2>Privacy first</h2>
 <p>No data collection. No external servers. No analytics. No tracking. Everything happens locally in your browser. Your conversations never leave your machine — there is no server of ours for them to leave to.</p>

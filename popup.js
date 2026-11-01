@@ -57,6 +57,13 @@ function detectPlatform(url) {
     if (match) return { platform: 'grok', conversationId: match[1], name: 'Grok' };
   }
 
+  // Google AI Studio -- the id is the prompt's Drive file id. The pattern is not
+  // anchored, so /app/prompts/<id> is accepted too, in case the route moves.
+  if (url.includes('aistudio.google.com')) {
+    const match = url.match(/\/prompts\/([A-Za-z0-9_-]+)/);
+    if (match) return { platform: 'aistudio', conversationId: match[1], name: 'AIStudio' };
+  }
+
   return null;
 }
 
@@ -82,11 +89,11 @@ function setTarget(detected, tabTitle) {
   if (!el) return;
   if (!detected || !detected.conversationId) {
     el.className = 'none';
-    el.textContent = 'Open a ChatGPT, Claude, Gemini or Grok conversation in this tab.';
+    el.textContent = 'Open a ChatGPT, Claude, Gemini, Grok or Google AI Studio conversation in this tab.';
     return;
   }
   const title = String(tabTitle || '')
-    .replace(/\s*[-|—]\s*(ChatGPT|Claude|Gemini|Grok).*$/i, '')
+    .replace(/\s*[-|—]\s*(ChatGPT|Claude|Gemini|Grok|Google AI Studio).*$/i, '')
     .trim();
   el.className = '';
   el.innerHTML = '';
@@ -190,7 +197,7 @@ async function doExport(format) {
     const detected = detectPlatform(tab?.url);
 
     if (!detected) {
-      setStatus('Open a supported AI conversation (ChatGPT, Claude, Gemini, Grok)', 'error');
+      setStatus('Open a supported AI conversation (ChatGPT, Claude, Gemini, Grok, Google AI Studio)', 'error');
       return;
     }
 
