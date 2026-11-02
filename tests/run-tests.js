@@ -2,7 +2,9 @@
 // tests/run-tests.js — offline quality gate for the v1.5 media-export logic.
 // Run:  node tests/run-tests.js
 // No dependencies. Tests only the pure root modules (background.js/popup.js
-// need chrome.* and are covered by docs/v1.5-MANUAL-TEST-PLAN.md instead).
+// need chrome.* and are covered by docs/v1.5-MANUAL-TEST-PLAN.md instead) -
+// except the theme section at the end, which runs popup.js itself in a vm
+// sandbox with a stub chrome.* and DOM.
 
 'use strict';
 
@@ -1007,6 +1009,201 @@ console.log('\n[structural: ai studio wired]');
     check('the four existing platforms are still detected', wrong.length === 0, wrong.join(' '));
     check('an unrelated site is not a platform', detectPlatform('https://example.com/prompts/abc') === null);
   }
+}
+
+// ---- theme (1.7.1): the HTML export and the popup ------------------------------
+// A store review asked for a dark background "like on Grok". One choice - auto |
+// light | dark - drives the .html export and the popup itself. popup.js cannot
+// be require()d (chrome.* and the DOM at its top level), so it runs here in a
+// vm sandbox with just enough of both to get through that top level: every
+// function below is the REAL one, not a copy of it.
+function loadPopup(stored) {
+  const vm = require('vm');
+  const els = {};
+  const el = (id) => els[id] || (els[id] = {
+    id, value: '', textContent: '', className: '', innerHTML: '', style: {}, listeners: {},
+    firstElementChild: { style: {} },
+    addEventListener(type, fn) { (this.listeners[type] = this.listeners[type] || []).push(fn); },
+    appendChild() {},
+    fire(type) { (this.listeners[type] || []).forEach(fn => fn({ target: this })); }
+  });
+  const attrs = {};
+  const writes = { local: [], sync: [], removed: [] };
+  const win = {
+    document: {
+      getElementById: el,
+      documentElement: {
+        setAttribute: (k, v) => { attrs[k] = v; },
+        removeAttribute: (k) => { delete attrs[k]; },
+        getAttribute: (k) => (k in attrs ? attrs[k] : null)
+      },
+      createTextNode: (t) => ({ text: t })
+    },
+    chrome: {
+      storage: {
+        sync: { get: (d, cb) => cb(d), set: (v) => { writes.sync.push(JSON.stringify(v)); } },
+        local: {
+          get: (d, cb) => cb(Object.assign({}, d, stored || {})),
+          set: (v, cb) => { writes.local.push(JSON.stringify(v)); if (cb) cb(); },
+          remove: (keys) => { writes.removed.push(JSON.stringify(keys)); }
+        }
+      },
+      tabs: { query: async () => [] },
+      runtime: { getManifest: () => ({ version: 'test' }), sendMessage: async () => ({}) }
+    },
+    MediaUtils, WordRuler: require(path.join(__dirname, '..', 'word-ruler.js')), console
+  };
+  vm.createContext(win);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'popup.js'), 'utf8'), win);
+  return { win, els, attrs, writes, vm };
+}
+
+// WCAG 2.x relative luminance and contrast ratio, for #rrggbb
+function lum(hex) {
+  const c = hex.slice(1).match(/../g).map(h => parseInt(h, 16) / 255)
+    .map(v => (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)));
+  return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+}
+function contrast(a, b) {
+  const hi = Math.max(lum(a), lum(b)), lo = Math.min(lum(a), lum(b));
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+console.log('\n[theme: html export]');
+{
+  const app = loadPopup();
+  const msgs = [
+    { role: 'user', text: 'Hello <b>there</b>' },
+    { role: 'assistant', text: 'Hi.\n```js\nconst a = 1;\n```' }
+  ];
+  const gen = (theme) => app.win.generateHTML('Title', msgs, 'USER', 'ASSISTANT', undefined, theme);
+  const light = gen('light'), auto = gen('auto'), dark = gen('dark');
+  const rules = Array.from(app.vm.runInContext('EXPORT_DARK_CSS', app.win));
+  const rule = (sel) => rules.find(r => r.indexOf(sel + ' {') === 0) || '';
+  const prop = (sel, name) => { const m = new RegExp('(?:^|[\\s{;])' + name + ':\\s*(#[0-9a-f]{6})').exec(rule(sel)); return m && m[1]; };
+  const pageBg = prop('body', 'background');
+
+  // dark: forced
+  check('dark: a near-black page with light text',
+    !!pageBg && lum(pageBg) < 0.02 && contrast(prop('body', 'color'), pageBg) >= 7, pageBg);
+  check('dark: every dark rule is in the file', rules.length >= 8 && rules.every(r => dark.indexOf(r) !== -1));
+  check('dark: tells the browser the page is dark (scrollbars, form controls)', dark.indexOf('color-scheme: dark') !== -1);
+  check('dark: forced - not conditional on the reader\'s system', dark.indexOf('prefers-color-scheme') === -1);
+  check('dark: on screens only, so a printout or PDF keeps dark text on white paper',
+    dark.indexOf('@media screen {') !== -1 && dark.indexOf('@media screen {') < dark.indexOf(rule('body')));
+  const texts = [['body', 'color'], ['.meta', 'color'], ['.speaker.user', 'color'], ['.speaker.assistant', 'color'],
+    ['.wordmark', 'color'], ['.msg em', 'color'], ['a', 'color']];
+  const worst = Math.min.apply(null, texts.map(([s, p]) => contrast(prop(s, p), pageBg)));
+  check('dark: every text colour clears 4.5:1 on the page', worst >= 4.5, worst.toFixed(2));
+
+  // auto: the default
+  check('auto: the dark palette sits under @media (prefers-color-scheme: dark)',
+    auto.indexOf('@media (prefers-color-scheme: dark) {') !== -1 &&
+    auto.indexOf('@media (prefers-color-scheme: dark) {') < auto.indexOf(rule('body')));
+  check('auto: carries the whole dark palette', rules.every(r => auto.indexOf(r) !== -1));
+  check('auto: the light page is still the base, the dark block comes after it and wins',
+    auto.indexOf('background: #fdfdfa') !== -1 &&
+    auto.indexOf('.msg em { color: #888; }') < auto.indexOf('@media (prefers-color-scheme: dark)'));
+
+  // light: untouched
+  check('light: no theme CSS at all (the page as it was before 1.7.1)',
+    light.indexOf('prefers-color-scheme') === -1 && light.indexOf('color-scheme') === -1 &&
+    light.indexOf('@media') === -1 && light.indexOf(pageBg) === -1);
+  check('theme is purely additive: auto and dark minus their block are the light page',
+    auto.replace(app.win.exportThemeCss('auto'), '') === light &&
+    dark.replace(app.win.exportThemeCss('dark'), '') === light);
+  check('only the <style> changes, never the conversation',
+    light.slice(light.indexOf('<body>')) === dark.slice(dark.indexOf('<body>')) &&
+    light.slice(light.indexOf('<body>')) === auto.slice(auto.indexOf('<body>')));
+
+  // what gets chosen
+  check('no theme given: auto', gen(undefined) === auto);
+  const junk = ['sepia', '', null, 42, {}, ['dark'], 'DARK', '</style><script>alert(1)</script>'];
+  check('anything that is not a theme is auto', junk.every(v => gen(v) === auto));
+  check('a theme value can never reach the file as markup', gen(junk[7]).indexOf('<script>') === -1);
+  app.win.applyTheme('dark');
+  check('left out, the popup\'s own choice decides (dark)',
+    app.win.generateHTML('Title', msgs, 'USER', 'ASSISTANT') === dark);
+  app.win.applyTheme('light');
+  check('left out, the popup\'s own choice decides (light)',
+    app.win.generateHTML('Title', msgs, 'USER', 'ASSISTANT') === light);
+
+  // the other formats
+  const md = {}, js = {};
+  for (const t of ['light', 'dark']) {
+    app.win.applyTheme(t);
+    md[t] = app.win.generateMD('Title', msgs, 'USER', 'ASSISTANT');
+    const o = JSON.parse(app.win.generateJSON('Title', msgs, 'USER', 'ASSISTANT'));
+    delete o.exported;                                       // a clock, not a theme
+    js[t] = JSON.stringify(o);
+  }
+  check('markdown is the same whatever the theme', md.light === md.dark && md.dark.indexOf('color') === -1);
+  check('json is the same whatever the theme', js.light === js.dark && js.dark.indexOf('theme') === -1);
+}
+
+console.log('\n[theme: popup]');
+{
+  const html = fs.readFileSync(path.join(__dirname, '..', 'popup.html'), 'utf8').replace(/\r\n/g, '\n');
+  const sel = /<select id="theme">([\s\S]*?)<\/select>/.exec(html);
+  const options = sel ? (sel[1].match(/value="[^"]*"/g) || []).join(' ') : '';
+  check('popup.html has a #theme select with exactly auto, light, dark',
+    options === 'value="auto" value="light" value="dark"', options);
+  check('the select has a label', /<label for="theme">/.test(html));
+
+  // palette: light is the base, dark for a dark system (auto only) and when forced
+  const decls = (block) => (block.match(/(--[a-z-]+|color-scheme):\s*[^;]+;/g) || []).map(d => d.replace(/\s+/g, ' '));
+  const base = /\n {4}:root \{([\s\S]*?)\n {4}\}/.exec(html);
+  const forced = /:root\[data-theme="dark"\] \{([\s\S]*?)\n {4}\}/.exec(html);
+  const system = /@media \(prefers-color-scheme: dark\) \{\s*:root:not\(\[data-theme\]\) \{([\s\S]*?)\n {6}\}\s*\}/.exec(html);
+  check('light is the base; a dark system darkens auto only; forced dark has its own rule',
+    !!base && !!forced && !!system && decls(base[1]).indexOf('color-scheme: light;') !== -1 &&
+    decls(forced[1]).indexOf('color-scheme: dark;') !== -1 && decls(system[1]).indexOf('color-scheme: dark;') !== -1);
+  check('the two dark palettes are the same declarations',
+    !!forced && !!system && decls(forced[1]).length > 15 && decls(forced[1]).join('|') === decls(system[1]).join('|'));
+  const used = Array.from(new Set((html.match(/var\(--[a-z-]+\)/g) || []).map(v => v.slice(4, -1))));
+  const defined = (b) => decls(b[1]).map(d => d.split(':')[0]);
+  check('every colour the popup uses is defined for light and for dark',
+    used.length > 15 && !!base && !!forced &&
+    used.every(v => defined(base).indexOf(v) !== -1 && defined(forced).indexOf(v) !== -1),
+    used.filter(v => defined(base).indexOf(v) === -1 || defined(forced).indexOf(v) === -1).join(','));
+
+  // behaviour
+  const start = (stored) => loadPopup(stored);
+  let app = start({ theme: 'dark' });
+  check('saved dark: applied on open, select shows it', app.attrs['data-theme'] === 'dark' && app.els.theme.value === 'dark');
+  app = start({ theme: 'light' });
+  check('saved light: applied on open, select shows it', app.attrs['data-theme'] === 'light' && app.els.theme.value === 'light');
+  app = start();
+  check('nothing saved: auto, which is no attribute at all (the CSS decides)',
+    !('data-theme' in app.attrs) && app.els.theme.value === 'auto');
+  app = start({ theme: 'sepia' });
+  check('a corrupt saved value is auto', !('data-theme' in app.attrs) && app.els.theme.value === 'auto');
+  app = start({ theme: 'dark' });
+  check('opening writes nothing', app.writes.local.length === 0 && app.writes.sync.length === 0);
+
+  app = start();
+  app.els.theme.value = 'light'; app.els.theme.fire('change');
+  check('choosing light applies it and saves it in storage.local',
+    app.attrs['data-theme'] === 'light' && app.writes.local.join() === '{"theme":"light"}', app.writes.local.join());
+  app.els.theme.value = 'dark'; app.els.theme.fire('change');
+  check('choosing dark applies it and saves it', app.attrs['data-theme'] === 'dark' && app.writes.local.pop() === '{"theme":"dark"}');
+  app.els.theme.value = 'auto'; app.els.theme.fire('change');
+  check('choosing auto takes the attribute off and saves auto',
+    !('data-theme' in app.attrs) && app.writes.local.pop() === '{"theme":"auto"}');
+  check('the theme never goes to sync storage (that is for the speaker labels)', app.writes.sync.length === 0);
+  app.win.applyTheme('dark');
+  check('what the select shows is what exports use',
+    app.win.generateHTML('T', [{ role: 'user', text: 'x' }], 'U', 'A').indexOf('@media screen {') !== -1);
+
+  // storage.local also holds the per-conversation memory, which is pruned by key prefix.
+  // The pruner reads `.at` off every record it considers; a bare string like 'dark' has no
+  // such date on Chrome 88-91 (MV3's floor, no String.prototype.at) and would read as 1970.
+  // Only the 'ui:' prefix keeps the theme out of its reach, so take the crutch away.
+  app = start({ theme: 'dark', 'ui:chatgpt:old': { at: 1 }, 'ui:claude:new': { at: Date.now() } });
+  app.vm.runInContext('delete String.prototype.at', app.win);
+  app.win.pruneMemory();
+  check('pruning the popup memory leaves the theme alone',
+    app.writes.removed.join() === '["ui:chatgpt:old"]', app.writes.removed.join());
 }
 
 // ---- summary -----------------------------------------------------------

@@ -67,7 +67,8 @@ present-but-unavailable rather than reported as a download failure.
 
 - **Markdown (.md)** — clean `[SPEAKER]` labels
 - **JSON** — structured data
-- **HTML** — one self-contained page with the images embedded; double-click to read
+- **HTML** — one self-contained page with the images embedded; double-click to read.
+  Light, dark, or following your system: see [Theme](#theme)
 
 Conversations with images or attachments export as a `.zip`: the document plus an
 `assets/` folder whose filenames encode where each image sat in the log
@@ -141,6 +142,23 @@ sha256 `6330d648…`. Install from the store, or unpacked below if you prefer.
 
 Default: `USER` / `ASSISTANT`. Change to anything in the popup. Saved automatically.
 
+## Theme
+
+The popup has a **Theme** selector: **Auto** (the default, follows your system),
+**Light** or **Dark**. It applies to the popup itself and to `.html` exports;
+Markdown and JSON have no colours and are unchanged.
+
+- **Auto** — the exported page is light, with an `@media (prefers-color-scheme: dark)`
+  block that turns it near-black with light text when the reader's system is
+  dark. One file, right on both.
+- **Dark** — the dark page on any screen, whatever the system says. Printing it
+  or saving it as PDF still gives dark text on white paper.
+- **Light** — the page exactly as it was before 1.7.1.
+
+Your choice is remembered in the browser (local storage, this machine). The popup
+used to be dark for everyone; on a light system it is now light under Auto, and
+Dark brings the old look back.
+
 ## Privacy
 
 No data collection. No external servers. No tracking. Everything local.
@@ -156,10 +174,11 @@ No data collection. No external servers. No tracking. Everything local.
   back, so that every turn is rendered before it is read), plus ChatGPT's
   signed image URLs, which are only honoured from the page. Nothing is
   injected into pages you did not ask to export.
-- `storage` — your two speaker labels (sync), and per conversation the filename
-  you last typed plus the last success line (local), so reopening the popup does
-  not lose your place. Capped at 200 conversations, expiring after 90 days. **No
-  conversation content is stored.**
+- `storage` — your two speaker labels (sync); your theme choice (auto, light or
+  dark) and, per conversation, the filename you last typed plus the last success
+  line (local), so reopening the popup does not lose your place. The
+  per-conversation records are capped at 200 conversations, expiring after 90
+  days. **No conversation content is stored.**
 - Host permissions for the five platforms — to read your conversation using the
   session you are already logged into.
 - `*.oaiusercontent.com` and `assets.grok.com` — the hosts that serve ChatGPT's
@@ -174,12 +193,23 @@ the platform they came from.
 Chrome disables an extension whose update requests new hosts until you approve
 them. You will see "needs permission" once. That is the update, not a fault.
 
-**Note when updating to 1.7.0:** `aistudio.google.com` is a new host permission,
-so the same one-time "needs permission" appears. An unpacked copy stays disabled
-after a reload until you accept it.
+**Note when updating to 1.7.0 or later:** `aistudio.google.com` is a new host
+permission, so the same one-time "needs permission" appears. An unpacked copy
+stays disabled after a reload until you accept it. 1.7.1 itself adds none.
 
 ## Changelog
 
+- **1.7.1** - Dark theme. A Chrome Web Store reviewer asked for a dark background
+  "like on Grok", and the HTML export now has one. The popup gets a Theme
+  selector - Auto (the default), Light or Dark - that drives both the `.html`
+  export and the popup itself. An Auto export carries an
+  `@media (prefers-color-scheme: dark)` block, so one file reads right on a dark
+  system and on a light one; Dark forces a near-black page with light text on any
+  screen (print stays dark text on white, so a saved PDF is readable); Light is
+  the page exactly as before. Markdown and JSON are untouched. The popup follows
+  the same choice, so on a light system it is now light by default - pick Dark for
+  the old look. No new permission. This package also carries Google AI Studio
+  (1.7.0, below).
 - **1.7.0** - Google AI Studio. Prompts at aistudio.google.com/prompts/... now
   export like the other platforms, to Markdown, JSON or HTML. AI Studio has no
   export API, so, like Gemini, it is read from the rendered page: text only.

@@ -1,5 +1,32 @@
 // popup.js — Multi-platform AI Conversation Exporter
 
+// ── v1.7.1 theme ──────────────────────────────────────────────────────
+// One choice - auto | light | dark - for two things: this popup and the .html
+// export. It came from a store review asking for a dark background "like on
+// Grok". `auto` is the default and follows the system, in the popup (CSS) and in
+// the exported file (@media prefers-color-scheme); the other two force one
+// palette. Markdown and JSON carry no colours and are not touched.
+// Kept in chrome.storage.local, not sync: it is how THIS machine should look,
+// where the speaker labels are content that follows the account.
+const THEMES = ['auto', 'light', 'dark'];
+const DEFAULT_THEME = 'auto';
+let THEME = DEFAULT_THEME;
+
+function normalizeTheme(value) {
+  return THEMES.indexOf(value) !== -1 ? value : DEFAULT_THEME;
+}
+
+// popup.html's CSS keys off data-theme on <html>. `auto` is no attribute at all,
+// so the default needs no script: the system decides in CSS alone.
+function applyTheme(value) {
+  THEME = normalizeTheme(value);
+  if (THEME === 'auto') document.documentElement.removeAttribute('data-theme');
+  else document.documentElement.setAttribute('data-theme', THEME);
+  document.getElementById('theme').value = THEME;
+}
+
+chrome.storage.local.get({ theme: DEFAULT_THEME }, (got) => applyTheme(got.theme));
+
 // Load saved labels
 chrome.storage.sync.get(
   { userLabel: '', assistantLabel: '' },
@@ -631,6 +658,40 @@ function generateJSON(title, messages, userLabel, assistantLabel) {
   }, null, 2);
 }
 
+// ── v1.7.1 HTML theme ────────────────────────────────────────────────
+// The dark palette, laid OVER generateHTML's stylesheet instead of woven into it:
+// `light` is the page exactly as it was before 1.7.1, and `auto` and `dark` are
+// the same rules under two different conditions.
+//   auto - only while the reader's system is dark (prefers-color-scheme).
+//   dark - on any screen, but not in print: Chrome leaves backgrounds out of a
+//          printout by default, so a forced-dark page printed or saved as PDF
+//          would be pale text on white paper.
+// Literal colours on purpose, no custom properties: this file is also opened in
+// Word and LibreOffice (README), which do not read var(), and the light page above
+// is left exactly as it was. Near-black page, off-white text; every text colour
+// clears 4.5:1 on the page (tests/run-tests.js measures it).
+const EXPORT_DARK_CSS = [
+  ':root { color-scheme: dark; }',
+  'body { color: #e4e4e1; background: #0f0f10; }',
+  '.meta { color: #a3a29b; border-bottom-color: #2d2d2f; }',
+  '.speaker.user { color: #7cb0ff; }',
+  '.speaker.assistant { color: #c3a3f0; }',
+  '.wordmark { color: #8c8a82; }',
+  '.msg img { border-color: #2d2d2f; }',
+  '.msg em { color: #a3a29b; }',
+  'a { color: #8ab4f8; }'
+];
+
+// CSS to append inside generateHTML's <style>; '' for light. Anything that is
+// not a known theme is `auto`, so the value can never reach the stylesheet.
+function exportThemeCss(theme) {
+  const t = normalizeTheme(theme);
+  if (t === 'light') return '';
+  const condition = t === 'auto' ? '(prefers-color-scheme: dark)' : 'screen';
+  return '\n  /* theme: ' + t + ' */\n  @media ' + condition + ' {\n' +
+    EXPORT_DARK_CSS.map(rule => '    ' + rule).join('\n') + '\n  }';
+}
+
 // v1.5: self-contained HTML export. Same content conventions as generateMD
 // (word-count header, [Label] speaker markers on alternation) rendered as
 // clean semantic HTML with inline CSS -- readable in any browser (and Word/
@@ -640,10 +701,13 @@ function generateJSON(title, messages, userLabel, assistantLabel) {
 // MediaUtils.convertPlaceholdersToHtml for how asset placeholders become
 // <img> tags, links, or visible failure/not-embeddable notes. Without maps
 // (text-only conversations) messages pass through as escaped text.
-function generateHTML(title, messages, userLabel, assistantLabel, mediaMaps) {
+// theme (optional): 'auto' | 'light' | 'dark', see exportThemeCss. Left out, it
+// is the popup's current choice.
+function generateHTML(title, messages, userLabel, assistantLabel, mediaMaps, theme) {
   const esc = MediaUtils.escapeHtml;
   const idToSrc = (mediaMaps && mediaMaps.idToSrc) || {};
   const idToName = (mediaMaps && mediaMaps.idToName) || {};
+  const themeCss = exportThemeCss(theme === undefined ? THEME : theme);
   const counts = countWords(messages);
 
   const body = [];
@@ -726,7 +790,7 @@ function generateHTML(title, messages, userLabel, assistantLabel, mediaMaps) {
     border: 1px solid #ddd;
     border-radius: 6px;
   }
-  .msg em { color: #888; }      /* failure / not-embeddable notes */
+  .msg em { color: #888; }      /* failure / not-embeddable notes */${themeCss}
 </style>
 </head>
 <body>
@@ -768,6 +832,11 @@ function sanitize(title) {
 document.getElementById('exportMd').addEventListener('click', () => doExport('md'));
 document.getElementById('exportJson').addEventListener('click', () => doExport('json'));
 document.getElementById('exportHtml').addEventListener('click', () => doExport('html'));
+
+document.getElementById('theme').addEventListener('change', (e) => {
+  applyTheme(e.target.value);
+  chrome.storage.local.set({ theme: THEME });
+});
 
 // Keep the filename preview in sync with the labels as they're typed.
 document.getElementById('exportFilename').addEventListener('input', async () => {

@@ -12,6 +12,12 @@ as the template for the next version.*
 already include Google AI Studio (1.7.0 - in the working tree, NOT yet
 submitted). The 1.5.8 wording they replace is in git history.*
 
+*2026-11-02: 1.7.1 adds the dark theme (a Theme selector in the popup, applied to
+the popup and to HTML exports; no new permission) and is the package to upload
+next - it carries the 1.7.0 AI Studio work as well. The HTML format line, the
+"Also in this version" list, the storage justification and the version notes below
+include it. NOT yet submitted: see "1.7.1 package" in section 4.*
+
 ---
 
 ## 1. Store listing
@@ -46,7 +52,7 @@ AI Chat QuickExport reads your conversation the same way the page itself does, s
 
 - **Markdown (.md)** — clean, labelled, ready to read.
 - **JSON** — structured data for processing.
-- **HTML** — one self-contained page with the images embedded; double-click and it opens anywhere, offline, forever.
+- **HTML** — one self-contained page with the images embedded; double-click and it opens anywhere, offline, forever. Light, dark, or following your system - you choose in the popup.
 
 **Images and attachments**
 
@@ -57,6 +63,7 @@ A conversation that contains images exports as a .zip: the document plus an `ass
 - The popup tells you what it is pointed at *before* you click — platform and conversation name — so you never discover you exported the wrong tab afterwards.
 - The filename you typed and the last result are remembered per conversation, so dismissing the popup does not cost you your place.
 - Custom speaker labels: name the two voices whatever you like.
+- A theme for the popup and for HTML exports: Auto (follows your system, the default), Light or Dark.
 
 **Known limits — stated up front, because finding them yourself is worse**
 
@@ -100,7 +107,7 @@ Used to read the URL and title of the tab you are on, at the moment you click th
 Two uses, both scoped to the conversation tab you clicked from, and both only while an export runs. (1) The conversation itself: ChatGPT, Gemini and Google AI Studio are read from inside the page — ChatGPT because its servers reject an identical request made from the extension's background context, Gemini and AI Studio because there is no API and the transcript exists only as rendered DOM (on AI Studio the same script also scrolls the conversation top to bottom and back, because the page keeps only the turns near the screen rendered). (2) ChatGPT image data: its image URLs are signed and only honoured for a request originating in the page. Nothing is injected into pages you have not asked to export, and no script persists after the export finishes.
 
 **`storage`**
-Two small records, both local to your browser, both yours. Sync storage keeps the two speaker labels you choose (e.g. "USER" / "ASSISTANT"). Local storage keeps, per conversation, the filename you last typed and the last success message, so reopening the popup does not lose your place; those records are capped at the 200 most recent conversations and expire after 90 days. No conversation content is stored.
+Three small kinds of record, all yours. Sync storage keeps the two speaker labels you choose (e.g. "USER" / "ASSISTANT"). Local storage keeps your theme choice (auto, light or dark) and, per conversation, the filename you last typed and the last success message, so reopening the popup does not lose your place; the per-conversation records are capped at the 200 most recent conversations and expire after 90 days. No conversation content is stored.
 
 **Host permission — `https://chatgpt.com/*`, `https://chat.openai.com/*`, `https://claude.ai/*`, `https://gemini.google.com/*`, `https://aistudio.google.com/*`, `https://grok.com/*`, `https://x.com/*`**
 These are the platforms the extension exports from. Access is needed to read the conversation you asked for, using your existing logged-in session — the same session the page itself uses. The extension is inert on every other site.
@@ -144,6 +151,12 @@ Between the published 1.4.0 and this 1.5.8, two host permissions are added — `
 
 > 1.7.0 adds Google AI Studio: prompts at aistudio.google.com now export to Markdown, JSON or HTML - text only, best effort, with attached files named and the model's thoughts included when their panel is open; it scrolls the conversation by itself while it reads. It needs one new host permission, for aistudio.google.com, and Chrome will ask you to approve it once.
 
+**1.7.1 adds no permission of its own.** The dark theme is a stylesheet and one stored preference. Anyone updating from 1.5.8 still gets 1.7.0's `aistudio.google.com` prompt once, because 1.7.1 is the package that carries it.
+
+**Version note for the 1.7.1 listing's "What's new":**
+
+> 1.7.1 adds a dark theme. The popup has a new Theme setting - Auto (follows your system, the default), Light or Dark - and it applies to the popup and to HTML exports: a dark export is a near-black page with light text, and printing it still gives dark text on white. Markdown and JSON are unchanged. This version also adds Google AI Studio (text only, best effort), which needs one new host permission, for aistudio.google.com; Chrome will ask you to approve it once.
+
 ---
 
 ## 4. Submission checklist
@@ -157,6 +170,14 @@ Between the published 1.4.0 and this 1.5.8, two host permissions are added — `
 - [x] Uploaded to the dashboard, justifications pasted, submitted for review.
 - [x] **Passed review and went live** — 2026-08-24, confirmed by the update
   service, which is the only source that speaks for what users actually get.
+
+### 1.7.1 package (2026-11-02)
+
+- [x] Built flat from the working tree, 10 files: `manifest.json`, `background.js`, `media-utils.js`, `zipwriter.js`, `word-ruler.js`, `popup.html`, `popup.js`, `icon16.png`, `icon48.png`, `icon128.png` — `ai-chat-quickexport-v1.7.1.zip`. The list is what `popup.html` and the manifest actually load, not remembered.
+- [x] Unit checks and adversarial attacks pass (`node tests/run-tests.js`, `node tests/adversarial.js`).
+- [x] The dark export and the popup were rendered in Chrome under a dark system and a light one, for Auto, Dark and Light.
+- [ ] Uploaded to the dashboard; the storage justification (section 2) and "What's new" (section 3) pasted; submitted for review.
+- [ ] Passed review and live — confirm against Chrome's update service, as for 1.5.8, before writing it here.
 
 ---
 

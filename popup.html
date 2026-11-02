@@ -3,6 +3,88 @@
 <head>
   <meta charset="UTF-8">
   <style>
+    /* Theme (1.7.1). Light is the base; the dark block is the look the popup had
+       before there was a choice, value for value. "Auto" is the absence of a
+       data-theme attribute on <html>, so the system decides in CSS alone; popup.js
+       sets data-theme="light" or "dark" to force one.
+       The dark block is written twice - once for a dark system, once for a forced
+       dark - because CSS cannot share one declaration list between a media query
+       and a plain selector. Keep the two identical (tests/run-tests.js checks). */
+    :root {
+      color-scheme: light;
+      --bg: #f4f4fa;
+      --fg: #22223a;
+      --title: #11112a;
+      --muted: #5d5d7c;
+      --field: #ffffff;
+      --line: rgba(0, 0, 0, 0.2);
+      --line-soft: rgba(0, 0, 0, 0.1);
+      --focus: rgba(70, 70, 220, 0.6);
+      --target-fg: #45456a;
+      --accent: #4545d0;
+      --btn: #e3e3f6;
+      --btn-hover: #d3d3f0;
+      --btn-fg: #26264f;
+      --info-bg: rgba(70, 70, 220, 0.1);
+      --info-fg: #3535b0;
+      --ok-bg: rgba(30, 140, 30, 0.12);
+      --ok-fg: #1d6b1d;
+      --err-bg: rgba(210, 40, 40, 0.1);
+      --err-fg: #b3261e;
+      --wc-bg: rgba(30, 140, 30, 0.08);
+      --hint: #6c6c8a;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme]) {
+        color-scheme: dark;
+        --bg: #1a1a2e;
+        --fg: #e0e0e0;
+        --title: #ffffff;
+        --muted: #8888aa;
+        --field: #0f0f1e;
+        --line: rgba(255, 255, 255, 0.15);
+        --line-soft: rgba(255, 255, 255, 0.08);
+        --focus: rgba(130, 130, 255, 0.5);
+        --target-fg: #b9b9d6;
+        --accent: #9a9aff;
+        --btn: #2a2a5a;
+        --btn-hover: #3a3a7a;
+        --btn-fg: #d0d0e8;
+        --info-bg: rgba(100, 100, 255, 0.15);
+        --info-fg: #aaaaff;
+        --ok-bg: rgba(100, 200, 100, 0.15);
+        --ok-fg: #6bc96b;
+        --err-bg: rgba(255, 100, 100, 0.15);
+        --err-fg: #ff6b6b;
+        --wc-bg: rgba(100, 200, 100, 0.08);
+        --hint: #555577;
+      }
+    }
+    :root[data-theme="dark"] {
+      color-scheme: dark;
+      --bg: #1a1a2e;
+      --fg: #e0e0e0;
+      --title: #ffffff;
+      --muted: #8888aa;
+      --field: #0f0f1e;
+      --line: rgba(255, 255, 255, 0.15);
+      --line-soft: rgba(255, 255, 255, 0.08);
+      --focus: rgba(130, 130, 255, 0.5);
+      --target-fg: #b9b9d6;
+      --accent: #9a9aff;
+      --btn: #2a2a5a;
+      --btn-hover: #3a3a7a;
+      --btn-fg: #d0d0e8;
+      --info-bg: rgba(100, 100, 255, 0.15);
+      --info-fg: #aaaaff;
+      --ok-bg: rgba(100, 200, 100, 0.15);
+      --ok-fg: #6bc96b;
+      --err-bg: rgba(255, 100, 100, 0.15);
+      --err-fg: #ff6b6b;
+      --wc-bg: rgba(100, 200, 100, 0.08);
+      --hint: #555577;
+    }
+
     * {
       box-sizing: border-box;
       margin: 0;
@@ -13,15 +95,15 @@
       width: 300px;
       padding: 16px;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      background: #1a1a2e;
-      color: #e0e0e0;
+      background: var(--bg);
+      color: var(--fg);
     }
 
     h2 {
       font-size: 15px;
       font-weight: 600;
       margin-bottom: 16px;
-      color: #ffffff;
+      color: var(--title);
     }
 
     .field {
@@ -31,26 +113,28 @@
     label {
       display: block;
       font-size: 11px;
-      color: #8888aa;
+      color: var(--muted);
       margin-bottom: 4px;
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }
 
-    input[type="text"] {
+    input[type="text"],
+    select {
       width: 100%;
       padding: 8px 10px;
-      border: 1px solid rgba(255, 255, 255, 0.15);
+      border: 1px solid var(--line);
       border-radius: 6px;
-      background: #0f0f1e;
-      color: #e0e0e0;
+      background: var(--field);
+      color: var(--fg);
       font-size: 13px;
       outline: none;
       transition: border-color 0.2s;
     }
 
-    input[type="text"]:focus {
-      border-color: rgba(130, 130, 255, 0.5);
+    input[type="text"]:focus,
+    select:focus {
+      border-color: var(--focus);
     }
 
     /* What this popup is pointed at. Until now the only clue was the filename
@@ -58,20 +142,20 @@
     #target {
       font-size: 12px;
       line-height: 1.35;
-      color: #b9b9d6;
-      background: #0f0f1e;
-      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: var(--target-fg);
+      background: var(--field);
+      border: 1px solid var(--line-soft);
       border-radius: 6px;
       padding: 8px 10px;
       margin-bottom: 14px;
       overflow-wrap: anywhere;
     }
     #target .platform {
-      color: #9a9aff;
+      color: var(--accent);
       font-weight: 600;
     }
     #target.none {
-      color: #8888aa;
+      color: var(--muted);
     }
 
     /* A long media export is two silent minutes with one line of text
@@ -79,7 +163,7 @@
     #progress {
       height: 4px;
       border-radius: 2px;
-      background: rgba(255, 255, 255, 0.08);
+      background: var(--line-soft);
       margin-top: 10px;
       overflow: hidden;
       display: none;
@@ -95,13 +179,13 @@
 
     .divider {
       height: 1px;
-      background: rgba(255, 255, 255, 0.08);
+      background: var(--line-soft);
       margin: 14px 0;
     }
 
     .export-section h3 {
       font-size: 12px;
-      color: #8888aa;
+      color: var(--muted);
       text-transform: uppercase;
       letter-spacing: 0.5px;
       margin-bottom: 10px;
@@ -116,10 +200,10 @@
       flex: 1;
       /* 6px sides: three buttons must fit the 300px popup */
       padding: 10px 6px;
-      border: 1px solid rgba(255, 255, 255, 0.15);
+      border: 1px solid var(--line);
       border-radius: 8px;
-      background: #2a2a5a;
-      color: #d0d0e8;
+      background: var(--btn);
+      color: var(--btn-fg);
       font-size: 13px;
       font-weight: 500;
       cursor: pointer;
@@ -128,7 +212,7 @@
     }
 
     .export-btn:hover {
-      background: #3a3a7a;
+      background: var(--btn-hover);
       transform: scale(1.02);
     }
 
@@ -146,7 +230,7 @@
 
     .export-btn .desc {
       font-size: 10px;
-      color: #8888aa;
+      color: var(--muted);
     }
 
     #status {
@@ -160,20 +244,20 @@
 
     #status.info {
       display: block;
-      background: rgba(100, 100, 255, 0.15);
-      color: #aaaaff;
+      background: var(--info-bg);
+      color: var(--info-fg);
     }
 
     #status.success {
       display: block;
-      background: rgba(100, 200, 100, 0.15);
-      color: #6bc96b;
+      background: var(--ok-bg);
+      color: var(--ok-fg);
     }
 
     #status.error {
       display: block;
-      background: rgba(255, 100, 100, 0.15);
-      color: #ff6b6b;
+      background: var(--err-bg);
+      color: var(--err-fg);
     }
 
     #wordcount {
@@ -181,18 +265,18 @@
       margin-top: 8px;
       padding: 8px 12px;
       border-radius: 6px;
-      background: rgba(100, 200, 100, 0.08);
+      background: var(--wc-bg);
       font-size: 11px;
       text-align: center;
-      color: #8888aa;
+      color: var(--muted);
     }
 
     .wc-label {
-      color: #8888aa;
+      color: var(--muted);
     }
 
     .wc-num {
-      color: #d0d0e8;
+      color: var(--btn-fg);
       font-weight: 600;
       font-family: monospace;
     }
@@ -200,7 +284,7 @@
     .hint {
       margin-top: 12px;
       font-size: 10.5px;
-      color: #555577;
+      color: var(--hint);
       line-height: 1.5;
     }
   </style>
@@ -223,6 +307,15 @@
   <div class="field">
     <label>Filename</label>
     <input type="text" id="exportFilename" placeholder="Auto-generated filename">
+  </div>
+
+  <div class="field">
+    <label for="theme">Theme</label>
+    <select id="theme">
+      <option value="auto">Auto (follow system)</option>
+      <option value="light">Light</option>
+      <option value="dark">Dark</option>
+    </select>
   </div>
 
   <div class="divider"></div>
@@ -252,6 +345,7 @@
   <div class="hint">
     Open an AI conversation, then click a format above to export.
     Labels are saved automatically when you export.
+    The theme applies to this popup and to .html exports.
   </div>
 
   <div class="hint">File saves to your browser's default Downloads folder.</div>

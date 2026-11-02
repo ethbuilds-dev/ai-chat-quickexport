@@ -17,7 +17,7 @@ a{color:#c4956a}
 </head>
 <body>
 <h1>Privacy Policy</h1>
-<p class="date">AI Chat QuickExport — Last updated: November 1, 2026 (version 1.7.0)</p>
+<p class="date">AI Chat QuickExport — Last updated: November 2, 2026 (version 1.7.1)</p>
 
 <h2>What data we collect</h2>
 <p>None. AI Chat QuickExport does not collect, store, transmit, or share any user data.</p>
@@ -31,7 +31,7 @@ a{color:#c4956a}
 <h2>Permissions used</h2>
 <p><strong>activeTab</strong> — To read the URL and title of the tab you clicked from, so the extension knows which platform and which conversation to export, and can show you the target before you commit to it.</p>
 <p><strong>scripting</strong> — To run the conversation fetch inside the page you are exporting. ChatGPT's servers reject an identical request made from the extension's background context, and Gemini and Google AI Studio have no API at all — their transcripts exist only as rendered page content. Google AI Studio keeps only the turns near the screen filled in, so there the same mechanism also scrolls the conversation from top to bottom and back, to have every turn rendered before it is read. The same mechanism fetches ChatGPT's signed image URLs, which are only honoured for a request originating in the page. Nothing is injected into pages you have not asked to export, and nothing persists after the export finishes.</p>
-<p><strong>storage</strong> — Two small local records. Your speaker labels (e.g. custom names for user and assistant) are kept in Chrome's sync storage. Per conversation, the filename you last typed and the last success message are kept in Chrome's local storage, so that reopening the popup does not lose your place; those records are capped at the 200 most recent conversations and expire after 90 days. No conversation content is stored.</p>
+<p><strong>storage</strong> — Three small records. Your speaker labels (e.g. custom names for user and assistant) are kept in Chrome's sync storage. Your theme choice (auto, light or dark) is kept in Chrome's local storage. Per conversation, the filename you last typed and the last success message are kept in Chrome's local storage, so that reopening the popup does not lose your place; those records are capped at the 200 most recent conversations and expire after 90 days. No conversation content is stored.</p>
 <p><strong>Host permissions</strong> (chatgpt.com, chat.openai.com, claude.ai, gemini.google.com, aistudio.google.com, grok.com, x.com) — Required to read conversation data on these specific platforms, using the session you are already logged into. The extension is inert everywhere else.</p>
 <p><strong>Asset host permissions</strong> (*.oaiusercontent.com, assets.grok.com) — The hosts that serve ChatGPT's and Grok's images and attachments. Required to download the pictures in a conversation so they can be packed into the export beside it. Nothing is ever uploaded to these hosts.</p>
 <p><strong>Remote code</strong> — None. The extension executes no remotely hosted code; all of its logic ships inside the package.</p>
@@ -44,6 +44,7 @@ a{color:#c4956a}
 
 <h2>Data retention</h2>
 <p>Your speaker labels, in Chrome's sync storage, until you change them.</p>
+<p>Your theme choice, in Chrome's local storage, until you change it.</p>
 <p>Per conversation, the filename you last typed and the last success line, in Chrome's local storage — so that dismissing the popup does not cost you your place. A typed filename may contain the conversation's own name, because that is what the extension suggests. These records are pruned automatically: the 200 most recent conversations, nothing older than 90 days.</p>
 <p><strong>No conversation content is retained</strong> — no messages, no images, no attachments. The exported file goes to your disk and the extension keeps no copy.</p>
 
