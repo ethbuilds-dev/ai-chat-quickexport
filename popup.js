@@ -601,6 +601,30 @@ function doHtmlMediaExport(detected, media, messages, labels, title, assigned) {
   showWordCount(countWords(messages));
 }
 
+// -- v1.7.2 timestamps --------------------------------------------------
+// m.ts is epoch seconds (float) or null/undefined. Always the reader's LOCAL
+// time, never UTC. '' / null when the platform gave no time.
+function fmtTs(ts) {
+  if (ts == null || typeof ts !== 'number' || !isFinite(ts)) return '';
+  const d = new Date(ts * 1000);
+  if (isNaN(d.getTime())) return '';
+  const z = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())} ${z(d.getHours())}:${z(d.getMinutes())}`;
+}
+
+// ISO-8601 in local time WITH the offset (2026-11-08T21:40:05+02:00); null when unknown.
+function isoLocal(ts) {
+  if (ts == null || typeof ts !== 'number' || !isFinite(ts)) return null;
+  const d = new Date(ts * 1000);
+  if (isNaN(d.getTime())) return null;
+  const z = (n) => String(n).padStart(2, '0');
+  const off = -d.getTimezoneOffset();
+  const sign = off < 0 ? '-' : '+';
+  const a = Math.abs(off);
+  return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}T${z(d.getHours())}:${z(d.getMinutes())}:${z(d.getSeconds())}` +
+    `${sign}${z(Math.floor(a / 60))}:${z(a % 60)}`;
+}
+
 // Generators
 function generateMD(title, messages, userLabel, assistantLabel) {
   const counts = countWords(messages);
@@ -619,7 +643,8 @@ function generateMD(title, messages, userLabel, assistantLabel) {
     const label = msg.role === 'user' ? userLabel : assistantLabel;
     if (label !== current) {
       current = label;
-      lines.push(`\n\n[${label}]`);
+      const when = fmtTs(msg.ts);
+      lines.push(`\n\n[${label}]` + (when ? ` · ${when}` : ''));
     }
     lines.push(msg.text);
     if (marks[i]) {
@@ -652,6 +677,7 @@ function generateJSON(title, messages, userLabel, assistantLabel) {
         // words_so_far: cumulative position, so a reader can find the exact
         // place a companion started losing the thread (Starlight, 27.08.2026).
         words_so_far: runs[i],
+        time: isoLocal(m.ts),
         text: m.text
       }));
     })()
@@ -679,6 +705,7 @@ const EXPORT_DARK_CSS = [
   '.wordmark { color: #8c8a82; }',
   '.msg img { border-color: #2d2d2f; }',
   '.msg em { color: #a3a29b; }',
+  '.ts { color: #a3a29b; }',
   'a { color: #8ab4f8; }'
 ];
 
@@ -722,7 +749,9 @@ function generateHTML(title, messages, userLabel, assistantLabel, mediaMaps, the
       current = label;
       body.push(`<div class="speaker ${role}">[${esc(label)}]</div>`);
     }
-    body.push(`<div class="msg ${role}">${MediaUtils.convertPlaceholdersToHtml(msg.text, idToSrc, idToName)}</div>`);
+    const when = fmtTs(msg.ts);
+    const tsSpan = when ? `<span class="ts">${esc(when)}</span>` : '';
+    body.push(`<div class="msg ${role}">${tsSpan}${MediaUtils.convertPlaceholdersToHtml(msg.text, idToSrc, idToName)}</div>`);
     if (marks[i]) {
       for (const w of marks[i]) body.push(`<div class="wordmark">${esc(WordRuler.label(w))}</div>`);
       current = null;
@@ -790,7 +819,8 @@ function generateHTML(title, messages, userLabel, assistantLabel, mediaMaps, the
     border: 1px solid #ddd;
     border-radius: 6px;
   }
-  .msg em { color: #888; }      /* failure / not-embeddable notes */${themeCss}
+  .msg em { color: #888; }      /* failure / not-embeddable notes */
+  .ts { display: block; color: #6b6b66; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; font-size: 0.72rem; margin-bottom: 0.15rem; }${themeCss}
 </style>
 </head>
 <body>

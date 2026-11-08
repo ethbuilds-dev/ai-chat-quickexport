@@ -297,7 +297,7 @@ async function fetchClaude(conversationId, token) {
       // Filter out unsupported block placeholders
       text = text.replace(/This block is not supported on your current device yet\.\n?/g, '').trim();
       if (text) {
-        messages.push({ role, text });
+        messages.push({ role, text, ts: toEpochSeconds(msg.created_at) });
       }
     }
 
@@ -324,11 +324,11 @@ async function fetchGemini(conversationId, token, tabId) {
         for (let i = 0; i < maxLen; i++) {
           if (i < queries.length) {
             const text = queries[i].innerText.trim();
-            if (text) messages.push({role: 'user', text});
+            if (text) messages.push({role: 'user', text, ts: null});
           }
           if (i < responses.length) {
             const text = responses[i].innerText.trim();
-            if (text) messages.push({role: 'assistant', text});
+            if (text) messages.push({role: 'assistant', text, ts: null});
           }
         }
 
@@ -725,7 +725,7 @@ function aistudioTurnsToMessages(turns, opts) {
       segs.push(aistudioFallbackText(turn.fallback));
     }
     const text = segs.filter((s) => s && s.trim()).join('\n\n');
-    if (text) messages.push({ role, text });
+    if (text) messages.push({ role, text, ts: null });
   }
   return messages;
 }
@@ -869,12 +869,36 @@ async function fetchGrok(conversationId, token) {
       }
       text = [text, phs.join('\n')].filter(Boolean).join('\n\n');
     }
-    if (text) messages.push({ role, text });
+    // Grok's load-responses carries createTime (ISO); tolerate the other spellings.
+    const gts = r.createTime != null ? r.createTime : (r.created_at != null ? r.created_at : r.create_time);
+    if (text) messages.push({ role, text, ts: toEpochSeconds(gts) });
   }
 
   const result = { title, messages, platform: 'grok' };
   if (media.length > 0) result.media = media;
   return result;
+}
+
+// -- v1.7.2 timestamps --------------------------------------------------
+// Every message carries `ts`: seconds since the epoch (float) or null. Nothing
+// is invented: a platform that does not say when a message was written (the
+// DOM-scraped ones) gets null, and the exports leave the time out.
+// Accepts epoch seconds, epoch milliseconds, ISO-8601 strings and protobuf-style
+// { seconds, nanos }; anything else is null.
+function toEpochSeconds(v) {
+  if (v == null || v === '') return null;
+  let n = null;
+  if (typeof v === 'number') n = v;
+  else if (typeof v === 'string') {
+    const t = Date.parse(v);
+    if (!isNaN(t)) n = t / 1000;
+    else if (/^\s*\d+(\.\d+)?\s*$/.test(v)) n = parseFloat(v);
+  } else if (typeof v === 'object' && v.seconds != null) {
+    const s = Number(v.seconds), ns = Number(v.nanos || 0);
+    if (isFinite(s)) n = s + (isFinite(ns) ? ns / 1e9 : 0);
+  }
+  if (n == null || !isFinite(n) || n <= 0) return null;
+  return n > 1e11 ? n / 1000 : n;   // > year 5138 as seconds => it was milliseconds
 }
 
 // ── Tree Walkers ──────────────────────────────────────────────────────
@@ -951,7 +975,7 @@ function walkChatGPTTree(mapping, mediaOut) {
           }
         }
         if (parts.length > 0) {
-          messages.push({ role, text: parts.join('\n\n') });
+          messages.push({ role, text: parts.join('\n\n'), ts: toEpochSeconds(node.message.create_time) });
         }
       } else if (role === 'tool' && mediaOut) {
         // ASSISTANT-GENERATED image path (INFERRED shape). Collect image
@@ -974,7 +998,7 @@ function walkChatGPTTree(mapping, mediaOut) {
         }
         if (placeholders.length > 0) {
           // Attribute the generated image(s) to an assistant turn.
-          messages.push({ role: 'assistant', text: placeholders.join('\n\n') });
+          messages.push({ role: 'assistant', text: placeholders.join('\n\n'), ts: toEpochSeconds(node.message.create_time) });
         }
       }
     }
@@ -1227,6 +1251,7 @@ async function fetchChatGPTAsset(ref, tabId) {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     walkChatGPTTree: walkChatGPTTree,
+    toEpochSeconds: toEpochSeconds,
     fetchRetrying: fetchRetrying,
     aistudioReadPage: aistudioReadPage,
     aistudioTurnsToMessages: aistudioTurnsToMessages,
