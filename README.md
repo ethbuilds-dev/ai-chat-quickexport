@@ -66,6 +66,7 @@ present-but-unavailable rather than reported as a download failure.
 ## Export formats
 
 - **Markdown (.md)** — clean `[SPEAKER]` labels
+- **Text only (no images, single .md)** — popup option, Markdown only: skips images and attachments, writes one `.md`
 - **JSON** — structured data
 - **HTML** — one self-contained page with the images embedded; double-click to read.
   Light, dark, or following your system: see [Theme](#theme)
@@ -199,6 +200,16 @@ stays disabled after a reload until you accept it. 1.7.1 itself adds none.
 
 ## Changelog
 
+- **1.8.0** - Text only. A new "Text only (no images, single .md)" option in the
+  popup. Ticked, a Markdown export downloads no images or attachments and writes
+  one `.md` straight away instead of a `.zip`; each image or attachment becomes a
+  short note (`[image omitted]`, `[attachment omitted: name]`). Off by default and
+  remembered between sessions. Markdown only: `.json` and `.html` export as before.
+- **1.7.2** - Per-message timestamps. Messages now carry their time in JSON,
+  Markdown and HTML: ChatGPT's `create_time` and Claude's `created_at`, in local
+  time, and null when the platform does not provide it. Grok's `createTime` is
+  read when present. Gemini and AI Studio are read from the rendered page and
+  carry no times.
 - **1.7.1** - Dark theme. A Chrome Web Store reviewer asked for a dark background
   "like on Grok", and the HTML export now has one. The popup gets a Theme
   selector - Auto (the default), Light or Dark - that drives both the `.html`

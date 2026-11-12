@@ -16,7 +16,13 @@ submitted). The 1.5.8 wording they replace is in git history.*
 the popup and to HTML exports; no new permission) and is the package to upload
 next - it carries the 1.7.0 AI Studio work as well. The HTML format line, the
 "Also in this version" list, the storage justification and the version notes below
-include it. NOT yet submitted: see "1.7.1 package" in section 4.*
+include it. Submitted, live since 2026-11-02: see "1.7.1 package" in section 4.*
+
+*2026-11-12: STATUS - 1.7.1 is LIVE in the store, since 2026-11-02. 1.7.2
+(per-message timestamps) was never submitted; its changes ship inside 1.8.0.
+1.8.0 (the "Text only (no images, single .md)" option) is packaged -
+`ai-chat-quickexport-v1.8.0.zip` - and pending upload: see "1.8.0 package" in
+section 4. The listing text in section 1 is still the 1.7.1 wording.*
 
 ---
 
@@ -176,7 +182,15 @@ Between the published 1.4.0 and this 1.5.8, two host permissions are added — `
 - [x] Built flat from the working tree, 10 files: `manifest.json`, `background.js`, `media-utils.js`, `zipwriter.js`, `word-ruler.js`, `popup.html`, `popup.js`, `icon16.png`, `icon48.png`, `icon128.png` — `ai-chat-quickexport-v1.7.1.zip`. The list is what `popup.html` and the manifest actually load, not remembered.
 - [x] Unit checks and adversarial attacks pass (`node tests/run-tests.js`, `node tests/adversarial.js`).
 - [x] The dark export and the popup were rendered in Chrome under a dark system and a light one, for Auto, Dark and Light.
-- [ ] Uploaded to the dashboard; the storage justification (section 2) and "What's new" (section 3) pasted; submitted for review.
+- [x] Uploaded to the dashboard; the storage justification (section 2) and "What's new" (section 3) pasted; submitted for review.
+- [x] Passed review and live — in the store since 2026-11-02 (as of 2026-11-12).
+
+### 1.8.0 package (2026-11-12)
+
+1.7.2 was never submitted, so it has no package entry here: its per-message timestamps will reach the store with 1.8.0.
+
+- [x] Built flat from the working tree on `main`, the same 10 files as the 1.7.1 package above — `ai-chat-quickexport-v1.8.0.zip`.
+- [ ] Uploaded to the dashboard; the listing description and "What's new" (section 3) written for 1.8.0 and pasted; submitted for review.
 - [ ] Passed review and live — confirm against Chrome's update service, as for 1.5.8, before writing it here.
 
 ---
