@@ -68,6 +68,25 @@
     });
   }
 
+  /**
+   * v1.8.0 "text only" Markdown: no asset is fetched, so no link may point at
+   * one. Each placeholder becomes a short plain note in the same spot:
+   *   ![alt](asset:ID)  ->  [image omitted]
+   *   [alt](asset:ID)   ->  [attachment omitted: alt]
+   * ("[attachment omitted]" when the alt is the generic "attachment".) An
+   * image's alt is dropped on purpose: for generated images it is the prompt
+   * (up to 120 chars), too long for a note that should stay short. The text
+   * around a placeholder is returned untouched.
+   */
+  function omitAssetLinks(text) {
+    if (typeof text !== 'string' || text.indexOf('](asset:') === -1) return text;
+    return text.replace(PLACEHOLDER_RE, function (whole, bang, alt) {
+      if (bang) return '[image omitted]';
+      const generic = !alt || alt === 'attachment';
+      return generic ? '[attachment omitted]' : '[attachment omitted: ' + alt + ']';
+    });
+  }
+
   // ---- HTML export (v1.5) --------------------------------------------------
   // The self-contained .html deliverable embeds images as data URIs at their
   // placeholder positions. Everything here is pure string logic so the
@@ -709,6 +728,7 @@
     makePlaceholder: makePlaceholder,
     PLACEHOLDER_RE: PLACEHOLDER_RE,
     rewriteAssetLinks: rewriteAssetLinks,
+    omitAssetLinks: omitAssetLinks,
     escapeHtml: escapeHtml,
     mimeFromExt: mimeFromExt,
     convertPlaceholdersToHtml: convertPlaceholdersToHtml,

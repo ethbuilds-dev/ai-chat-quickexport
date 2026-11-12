@@ -27,6 +27,22 @@ function applyTheme(value) {
 
 chrome.storage.local.get({ theme: DEFAULT_THEME }, (got) => applyTheme(got.theme));
 
+// ── v1.8.0 text only ──────────────────────────────────────────────────
+// A Markdown export of a chat with images meant downloading every asset one by
+// one and zipping them: over a minute on a long thread, and a .zip to unpack
+// where older versions gave one .md. With the box ticked, doExport never calls
+// doMediaExport - no asset bytes are requested - and the plain single-file path
+// writes the .md, each image/attachment left as a short note. .md only: .json
+// and .html ignore the box. Off by default. Kept in chrome.storage.local like
+// the theme: it is how THIS machine exports.
+chrome.storage.local.get({ textOnly: false }, (got) => {
+  document.getElementById('textOnly').checked = got.textOnly === true;
+});
+
+function isTextOnly() {
+  return document.getElementById('textOnly').checked === true;
+}
+
 // Load saved labels
 chrome.storage.sync.get(
   { userLabel: '', assistantLabel: '' },
@@ -251,7 +267,7 @@ async function doExport(format) {
 
     const data = response.data;
     const title = data.title || 'Untitled';
-    const messages = data.messages || [];
+    let messages = data.messages || [];
 
     if (messages.length === 0) {
       setStatus('No exportable messages found', 'error');
@@ -263,7 +279,12 @@ async function doExport(format) {
     // found at least one image/attachment, so plain conversations continue
     // through the unchanged v1.4.3 code below.
     const media = Array.isArray(data.media) ? data.media : [];
-    if (media.length > 0) {
+    // v1.8.0: text only skips the asset download entirely (see isTextOnly).
+    // Only when media exist, so a conversation without any stays byte-identical.
+    const textOnly = format === 'md' && media.length > 0 && isTextOnly();
+    if (textOnly) {
+      messages = messages.map(m => Object.assign({}, m, { text: MediaUtils.omitAssetLinks(m.text) }));
+    } else if (media.length > 0) {
       await doMediaExport(detected, tab, media, messages, labels, format, title);
       return;
     }
@@ -301,7 +322,8 @@ async function doExport(format) {
 
     // Word count
     const counts = countWords(messages);
-    setStatus(`Exported ${messages.length} messages from ${detected.name}`, 'success');
+    const note = textOnly ? ` (text only, ${media.length} attachment${media.length === 1 ? '' : 's'} left out)` : '';
+    setStatus(`Exported ${messages.length} messages from ${detected.name}${note}`, 'success');
     showWordCount(counts);
 
   } catch (err) {
@@ -866,6 +888,10 @@ document.getElementById('exportHtml').addEventListener('click', () => doExport('
 document.getElementById('theme').addEventListener('change', (e) => {
   applyTheme(e.target.value);
   chrome.storage.local.set({ theme: THEME });
+});
+
+document.getElementById('textOnly').addEventListener('change', (e) => {
+  chrome.storage.local.set({ textOnly: e.target.checked === true });
 });
 
 // Keep the filename preview in sync with the labels as they're typed.

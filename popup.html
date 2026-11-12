@@ -233,6 +233,24 @@
       color: var(--muted);
     }
 
+    /* 1.8.0 "Text only": a sentence-case option row under the format buttons,
+       not an uppercase field label (the plain `label` rule above is for fields). */
+    label.opt {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 10px 0 0;
+      font-size: 12px;
+      color: var(--fg);
+      text-transform: none;
+      letter-spacing: 0;
+      cursor: pointer;
+    }
+    label.opt input {
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
     #status {
       margin-top: 10px;
       padding: 8px 12px;
@@ -336,6 +354,10 @@
         <span class="desc">Opens anywhere</span>
       </button>
     </div>
+    <label class="opt" for="textOnly">
+      <input type="checkbox" id="textOnly">
+      <span>Text only (no images, single .md)</span>
+    </label>
   </div>
 
   <div id="progress"><i></i></div>
@@ -346,6 +368,7 @@
     Open an AI conversation, then click a format above to export.
     Labels are saved automatically when you export.
     The theme applies to this popup and to .html exports.
+    Text only applies to .md exports; .json and .html still include images.
   </div>
 
   <div class="hint">File saves to your browser's default Downloads folder.</div>
