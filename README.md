@@ -119,10 +119,11 @@ anywhere — which was a fair complaint about the tool, not about the reader.
 
 ### Chrome Web Store
 [AI Chat QuickExport](https://chromewebstore.google.com/detail/oocipcgmlmgnkkcodlnnpdddgmodhoai)
-— **LIVE with 1.5.8.** Verified against Chrome's own update service on
-2026-08-24, not against a dashboard screenshot: the endpoint serves
-`..._1_5_8_0.crx`, `version="1.5.8"`, `status="ok"`, 45,919 bytes,
-sha256 `6330d648…`. Install from the store, or unpacked below if you prefer.
+— **LIVE with 1.7.1.** Verified against Chrome's own update service on
+2026-11-12, not against a dashboard screenshot. 1.8.0 was submitted on
+2026-11-12 and is in review; until it is approved, install 1.8.0 from the
+[GitHub release zip](https://github.com/ethbuilds-dev/ai-chat-quickexport/releases/tag/v1.8.0)
+via "Load unpacked" (below).
 
 ### Manual install
 1. Download or clone this repo

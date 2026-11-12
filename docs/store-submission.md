@@ -20,9 +20,10 @@ include it. Submitted, live since 2026-11-02: see "1.7.1 package" in section 4.*
 
 *2026-11-12: STATUS - 1.7.1 is LIVE in the store, since 2026-11-02. 1.7.2
 (per-message timestamps) was never submitted; its changes ship inside 1.8.0.
-1.8.0 (the "Text only (no images, single .md)" option) is packaged -
-`ai-chat-quickexport-v1.8.0.zip` - and pending upload: see "1.8.0 package" in
-section 4. The listing text in section 1 is still the 1.7.1 wording.*
+1.8.0 (the "Text only (no images, single .md)" option) was packaged -
+`ai-chat-quickexport-v1.8.0.zip` - and uploaded to the store on 2026-11-12,
+in review: see "1.8.0 package" in section 4. The listing text in section 1 is
+still the 1.7.1 wording.*
 
 ---
 
